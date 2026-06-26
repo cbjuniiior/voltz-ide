@@ -803,7 +803,7 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
     setClaudeRunning(true);
   }
 
-  async function resumeSession(sessionId: string) {
+  async function resumeSession(sessionId: string, sessionConfigDir?: string) {
     const term = termRef.current;
     const ptyId = ptyIdRef.current;
     if (!ptyId) return;
@@ -817,6 +817,25 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       }
       claudePath = result.path;
       void useSettingsStore.getState().update({ claudePath: result.path });
+    }
+
+    // A sessão pode pertencer a OUTRA conta (CLAUDE_CONFIG_DIR diferente). Aponta o
+    // terminal pra conta dona ANTES do --resume, senão dá "No conversation found".
+    if (sessionConfigDir) {
+      const norm = (p: string) => p.replace(/[\\/]+$/, '').toLowerCase();
+      const owner = useAccountsStore.getState().accounts.find((a) => norm(a.dir) === norm(sessionConfigDir));
+      if (owner) {
+        if (owner.id !== pane.claudeAccountId) setClaudeAccount(owner.id);
+      } else {
+        // Conta fora do gerenciador: aponta o env direto pra ela.
+        const shell = settings.defaultShell;
+        const envCmd = shell === 'cmd'
+          ? `set "CLAUDE_CONFIG_DIR=${sessionConfigDir}"`
+          : shell === 'pwsh'
+            ? `$env:CLAUDE_CONFIG_DIR='${sessionConfigDir}'`
+            : `export CLAUDE_CONFIG_DIR="${sessionConfigDir}"`;
+        window.api.pty.write(ptyId, `${envCmd}\r`);
+      }
     }
 
     const isPs = settings.defaultShell === 'pwsh';

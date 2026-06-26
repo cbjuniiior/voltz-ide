@@ -7,6 +7,8 @@ export interface ClaudeSessionInfo {
   id: string;
   preview: string;
   mtimeMs: number;
+  /** Config dir (conta) dona da sessão — o `--resume` precisa apontar pra ela. */
+  configDir: string;
 }
 
 export interface GlobalClaudeSession extends ClaudeSessionInfo {
@@ -261,11 +263,11 @@ export async function sessionsInDir(configDir: string, projectPath: string): Pro
  */
 export async function listClaudeSessions(projectPath: string, configDir?: string): Promise<ClaudeSessionInfo[]> {
   const bases = configDir ? [configDir] : await allConfigDirs();
-  const collected: Array<{ id: string; file: string; mtimeMs: number }> = [];
-  for (const b of bases) collected.push(...await sessionsInDir(b, projectPath));
+  const collected: Array<{ id: string; file: string; mtimeMs: number; configDir: string }> = [];
+  for (const b of bases) for (const s of await sessionsInDir(b, projectPath)) collected.push({ ...s, configDir: b });
 
   // Dedupe por id (mesma sessão não aparece 2x) e ordena por data.
-  const byId = new Map<string, { id: string; file: string; mtimeMs: number }>();
+  const byId = new Map<string, { id: string; file: string; mtimeMs: number; configDir: string }>();
   for (const s of collected) {
     const prev = byId.get(s.id);
     if (!prev || s.mtimeMs > prev.mtimeMs) byId.set(s.id, s);
@@ -274,7 +276,7 @@ export async function listClaudeSessions(projectPath: string, configDir?: string
 
   const out: ClaudeSessionInfo[] = [];
   for (const s of top) {
-    out.push({ id: s.id, mtimeMs: s.mtimeMs, preview: (await readHead(s.file)).preview });
+    out.push({ id: s.id, mtimeMs: s.mtimeMs, preview: (await readHead(s.file)).preview, configDir: s.configDir });
   }
   return out;
 }
@@ -288,7 +290,7 @@ export async function listAllClaudeSessions(limit = 60, configDirs?: string[]): 
   const bases = configDirs?.length ? configDirs : await allConfigDirs();
 
   // 1) Coleta (arquivo, mtime) de todas as sessões de todos os config dirs.
-  const all: Array<{ file: string; id: string; mtimeMs: number }> = [];
+  const all: Array<{ file: string; id: string; mtimeMs: number; configDir: string }> = [];
   for (const cfg of bases) {
     const base = path.join(cfg, 'projects');
     let dirs: string[];
@@ -300,14 +302,14 @@ export async function listAllClaudeSessions(limit = 60, configDirs?: string[]): 
       for (const f of files) {
         try {
           const st = await fs.stat(path.join(full, f));
-          all.push({ file: path.join(full, f), id: f.replace(/\.jsonl$/, ''), mtimeMs: st.mtimeMs });
+          all.push({ file: path.join(full, f), id: f.replace(/\.jsonl$/, ''), mtimeMs: st.mtimeMs, configDir: cfg });
         } catch { /* ignore */ }
       }
     }
   }
 
   // 2) Dedupe por id, ordena globalmente e lê o head só das `limit` mais recentes.
-  const byId = new Map<string, { file: string; id: string; mtimeMs: number }>();
+  const byId = new Map<string, { file: string; id: string; mtimeMs: number; configDir: string }>();
   for (const s of all) {
     const prev = byId.get(s.id);
     if (!prev || s.mtimeMs > prev.mtimeMs) byId.set(s.id, s);
@@ -320,7 +322,7 @@ export async function listAllClaudeSessions(limit = 60, configDirs?: string[]): 
     const projectName = head.cwd
       ? (head.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).pop() ?? head.cwd)
       : 'Projeto desconhecido';
-    out.push({ id: s.id, mtimeMs: s.mtimeMs, preview: head.preview, cwd: head.cwd, projectName });
+    out.push({ id: s.id, mtimeMs: s.mtimeMs, preview: head.preview, cwd: head.cwd, projectName, configDir: s.configDir });
   }
   return out;
 }

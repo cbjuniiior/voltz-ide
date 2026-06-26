@@ -38,7 +38,7 @@ interface Props {
   pane: PaneLeaf;
   onStartClaude: () => void;
   onResumeClaude: () => void;
-  onResumeSession: (sessionId: string) => void;
+  onResumeSession: (sessionId: string, configDir?: string) => void;
   onToggleSpeech: () => void;
   onClearTerminal: () => void;
   hasTerminal: boolean;
@@ -707,11 +707,11 @@ function ClaudeSessionsMenu({
   projectPath: string | null;
   hasTerminal: boolean;
   onContinue: () => void;
-  onResume: (sessionId: string) => void;
+  onResume: (sessionId: string, configDir?: string) => void;
   accountId?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [sessions, setSessions] = useState<Array<{ id: string; preview: string; mtimeMs: number }>>([]);
+  const [sessions, setSessions] = useState<Array<{ id: string; preview: string; mtimeMs: number; configDir: string }>>([]);
   const [loading, setLoading] = useState(false);
   // Config dir da conta deste terminal: as sessões ficam em <configDir>/projects,
   // então a busca (e o --resume) precisa olhar nessa conta, não só na ~/.claude.
@@ -771,7 +771,7 @@ function ClaudeSessionsMenu({
             {!loading && sessions.map((s) => (
               <button
                 key={s.id}
-                onClick={() => { onResume(s.id); setOpen(false); }}
+                onClick={() => { onResume(s.id, s.configDir); setOpen(false); }}
                 className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-bg-hover"
                 title={s.id}
               >

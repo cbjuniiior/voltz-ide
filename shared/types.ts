@@ -267,7 +267,7 @@ export interface IpcApi {
   };
   claude: {
     detect: () => Promise<ClaudeDetectResult>;
-    sessions: (projectPath: string, configDir?: string) => Promise<Array<{ id: string; preview: string; mtimeMs: number }>>;
+    sessions: (projectPath: string, configDir?: string) => Promise<Array<{ id: string; preview: string; mtimeMs: number; configDir: string }>>;
     allSessions: (limit?: number, configDirs?: string[]) => Promise<Array<{ id: string; preview: string; mtimeMs: number; cwd: string | null; projectName: string }>>;
     usage: (configDir?: string) => Promise<{
       ok: boolean;
