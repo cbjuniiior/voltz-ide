@@ -1,0 +1,306 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================
+   Theme tokens — flat, modern, dual-mode.
+   Switch via [data-theme="light"] on <html>.
+   ========================================================== */
+
+:root,
+[data-theme='dark'] {
+  /* ===== Surfaces — grafite neutro, calmo e elevado (Notion/Apple dark) ===== */
+  --bg-base: #1a1a1d;
+  --bg-surface: #222127;
+  --bg-elevated: #2a2a30;
+  --bg-overlay: #302f37;
+  --bg-hover: rgba(255, 255, 255, 0.038);
+  --bg-active: rgba(255, 255, 255, 0.068);
+
+  /* ===== Text — off-white suave, cinzas neutros ===== */
+  --text-primary: #ececed;
+  --text-secondary: #b6b6bd;
+  --text-tertiary: #8a8a93;
+  --text-muted: #66666f;
+  --text-disabled: #46464e;
+
+  /* ===== Borders — finas e discretas ===== */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  /* ===== Accent — violeta sóbrio ("Voltz"), usado com parcimônia ===== */
+  --accent: #8b7cff;
+  --accent-hover: #a294ff;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(139, 124, 255, 0.13);
+  --accent-strong: rgba(139, 124, 255, 0.26);
+
+  /* ===== Status — vivas mas equilibradas ===== */
+  --success: #35c891;
+  --success-soft: rgba(53, 200, 145, 0.14);
+  --warning: #eaa54a;
+  --warning-soft: rgba(234, 165, 74, 0.15);
+  --danger: #f06a6a;
+  --danger-soft: rgba(240, 106, 106, 0.14);
+  --info: #5b9bf0;
+
+  /* ===== Focus / shadows — suaves e difusas (Apple) ===== */
+  --ring: rgba(139, 124, 255, 0.42);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 6px 22px rgba(0, 0, 0, 0.26);
+  --shadow-lg: 0 16px 46px rgba(0, 0, 0, 0.36);
+
+  /* ===== Terminal default palette (overridden per pane theme) ===== */
+  --term-bg: #161619;
+  --term-fg: #ececed;
+  --term-cursor: #8b7cff;
+  --term-selection: rgba(139, 124, 255, 0.28);
+}
+
+[data-theme='light'] {
+  /* Cool neutral greys — clean & corporate */
+  --bg-base: #f6f7f9;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-overlay: #ffffff;
+  --bg-hover: rgba(15, 23, 42, 0.04);
+  --bg-active: rgba(15, 23, 42, 0.07);
+
+  --text-primary: #1b1f27;
+  --text-secondary: #3a4150;
+  --text-tertiary: #5f6776;
+  --text-muted: #8891a0;
+  --text-disabled: #c1c6d0;
+
+  --border-subtle: rgba(15, 23, 42, 0.07);
+  --border-default: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.16);
+
+  --accent: #5560e0;
+  --accent-hover: #616cea;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(85, 96, 224, 0.09);
+  --accent-strong: rgba(85, 96, 224, 0.20);
+
+  --success: #2f9e63;
+  --success-soft: rgba(47, 158, 99, 0.12);
+  --warning: #b87f2e;
+  --warning-soft: rgba(184, 127, 46, 0.14);
+  --danger: #d8554a;
+  --danger-soft: rgba(216, 85, 74, 0.10);
+  --info: #3f7cb8;
+
+  --ring: rgba(85, 96, 224, 0.35);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 16px 36px rgba(15, 23, 42, 0.12);
+
+  --term-bg: #f6f7f9;
+  --term-fg: #1b1f27;
+  --term-cursor: #5560e0;
+  --term-selection: rgba(85, 96, 224, 0.20);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.006em;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+/* Títulos com o "aperto" tipográfico elegante (Apple/Notion). */
+h1, h2, h3, .tracking-tight-apple { letter-spacing: -0.018em; }
+
+* {
+  box-sizing: border-box;
+}
+
+/* ===== App background — calmo e quase liso, com um respiro de profundidade ===== */
+.app-bg {
+  background:
+    radial-gradient(135% 95% at 50% -18%, color-mix(in srgb, var(--accent) 3.5%, transparent) 0%, transparent 46%),
+    var(--bg-base);
+}
+
+/* Soft elevated surface used by floating panels/cards */
+.surface-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); background-clip: padding-box; border: 2px solid transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Thin, unobtrusive scrollbar — chat-panel feel. Transparent track so the
+   terminal's own background shows through. */
+.xterm-viewport::-webkit-scrollbar { width: 7px; }
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+  border-radius: 6px;
+}
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+.xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+
+/* Barra de abas do browser: rolagem horizontal sem mostrar a scrollbar. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Fundo pontilhado do canvas de terminais. */
+.canvas-bg {
+  background-color: var(--bg-base);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-muted) 22%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Conexão "viva": tracejado que flui de origem → destino (terminal trabalhando). */
+@keyframes edge-flow { to { stroke-dashoffset: -22; } }
+.canvas-edge-flow {
+  stroke-dasharray: 7 7;
+  animation: edge-flow 0.55s linear infinite;
+}
+
+/* Smooth cursor blink already handled by xterm; soften text rendering. */
+.xterm .xterm-rows { letter-spacing: 0; }
+
+/* ===== Resize handles ===== */
+[data-panel-group-direction='horizontal'] > [data-resize-handle] {
+  width: 3px !important;
+  background: var(--border-subtle);
+  transition: background 0.15s;
+  cursor: col-resize;
+}
+[data-panel-group-direction='horizontal'] > [data-resize-handle]:hover,
+[data-panel-group-direction='horizontal'] > [data-resize-handle][data-resize-handle-active] {
+  background: var(--accent);
+}
+[data-panel-group-direction='vertical'] > [data-resize-handle] {
+  height: 3px !important;
+  background: var(--border-subtle);
+  transition: background 0.15s;
+  cursor: row-resize;
+}
+[data-panel-group-direction='vertical'] > [data-resize-handle]:hover,
+[data-panel-group-direction='vertical'] > [data-resize-handle][data-resize-handle-active] {
+  background: var(--accent);
+}
+
+/* ===== Animations ===== */
+.project-item:hover .project-badge { transform: scale(1.04); }
+
+@keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+.pane-fadein { animation: fadein 0.18s ease-out; }
+
+@keyframes pulse-dot { 0%, 100% { opacity: 0.85; } 50% { opacity: 0.35; } }
+.claude-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+@keyframes cmd-enter {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cmd-enter { animation: cmd-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes toast-enter {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+.toast-enter { animation: toast-enter 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes welcome-fade {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.welcome-fade { animation: welcome-fade 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes tab-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.tab-enter { animation: tab-enter 0.2s ease-out; }
+
+@keyframes paste-progress {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+.paste-progress {
+  transform-origin: left center;
+  animation: paste-progress 5s linear forwards;
+}
+
+/* ===== Focus ring (flat, accessible) ===== */
+/* Only inputs get the visible ring — buttons get a subtle accent border via existing styles. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-radius: 6px;
+}
+button:focus-visible,
+[role='button']:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* ===== Form normalisation ===== */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+select {
+  color-scheme: dark light;
+}
+[data-theme='light'] select { color-scheme: light; }
+[data-theme='dark']  select { color-scheme: dark; }
+
+/* ===== Markdown viewer ===== */
+.md-body { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+.md-body > *:first-child { margin-top: 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { color: var(--text-primary); font-weight: 700; line-height: 1.3; margin: 1.4em 0 0.6em; }
+.md-body h1 { font-size: 1.7em; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.3em; }
+.md-body h2 { font-size: 1.4em; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.25em; }
+.md-body h3 { font-size: 1.2em; }
+.md-body h4 { font-size: 1.05em; }
+.md-body p { margin: 0.7em 0; }
+.md-body a { color: var(--accent-hover); text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
+.md-body strong { color: var(--text-primary); font-weight: 700; }
+.md-body ul, .md-body ol { margin: 0.7em 0; padding-left: 1.5em; }
+.md-body li { margin: 0.3em 0; }
+.md-body ul { list-style: disc; }
+.md-body ol { list-style: decimal; }
+.md-body code { font-family: 'Cascadia Mono', 'Consolas', monospace; font-size: 0.88em; background: var(--bg-active); padding: 0.15em 0.4em; border-radius: 5px; color: var(--accent-hover); }
+.md-body pre { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0.9em 0; }
+.md-body pre code { background: none; padding: 0; color: var(--text-secondary); font-size: 0.85em; }
+.md-body blockquote { border-left: 3px solid var(--accent); padding-left: 1em; margin: 0.9em 0; color: var(--text-tertiary); }
+.md-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 1.5em 0; }
+.md-body table { border-collapse: collapse; width: 100%; margin: 0.9em 0; font-size: 0.92em; display: block; overflow-x: auto; }
+.md-body th, .md-body td { border: 1px solid var(--border-default); padding: 0.5em 0.8em; text-align: left; }
+.md-body th { background: var(--bg-active); color: var(--text-primary); font-weight: 600; }
+.md-body img { max-width: 100%; border-radius: 8px; }
+.md-body input[type="checkbox"] { margin-right: 0.5em; }

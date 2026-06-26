@@ -1,0 +1,44 @@
+name: Release
+
+# Dispara ao publicar uma tag de versão (ex.: v0.2.0).
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write # necessário para o GITHUB_TOKEN criar o Release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # O bundle (Monaco etc.) estoura o heap padrão do Node no build do Vite.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar ícones
+        run: npm run build:icons
+
+      - name: Build (renderer + electron)
+        run: npm run build
+
+      - name: Empacotar e publicar no GitHub Releases
+        run: npx --no-install electron-builder --publish always
+        env:
+          # Token automático do Actions — publica no próprio repositório.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Build não assinado no macOS — não procurar certificados.
+          CSC_IDENTITY_AUTO_DISCOVERY: false

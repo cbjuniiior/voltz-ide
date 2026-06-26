@@ -1,0 +1,56 @@
+appId: com.cassiobona.voltzide
+productName: Voltz IDE
+directories:
+  output: release
+# Publicação dos instaladores no GitHub Releases (alimenta o auto-update).
+publish:
+  provider: github
+  owner: cbjuniiior
+  repo: voltz-ide
+  # Publica direto (não rascunho) para o auto-update enxergar o release.
+  releaseType: release
+# Patch the .exe icon/metadata ourselves with rcedit (see scripts/after-pack.cjs).
+# Doing it via afterPack lets us keep signAndEditExecutable=false on Windows,
+# which avoids electron-builder trying to download the winCodeSign cache
+# (whose extraction needs SeCreateSymbolicLinkPrivilege we don't have).
+afterPack: scripts/after-pack.cjs
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - build/icon.*
+  - package.json
+  - "!**/{.git,.vscode,node_modules/.cache}"
+asarUnpack:
+  - "**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**/*"
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  # Disable electron-builder's own signAndEdit flow — it pulls down the
+  # winCodeSign cache which contains macOS dylib symlinks and fails to
+  # extract on Windows without elevated privileges. Our `afterPack` hook
+  # patches the icon + metadata directly with rcedit instead.
+  signAndEditExecutable: false
+  signtoolOptions: null
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+mac:
+  # Build NÃO assinado (sem conta Apple Developer). O .dmg é gerado para
+  # distribuição manual; o auto-update no macOS exigiria assinatura+notarização.
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  identity: null
+  target:
+    - dmg
+    - zip
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+dmg:
+  artifactName: "${productName}-${version}-${arch}.${ext}"
