@@ -97,7 +97,8 @@ export function PaneHeader({
     return () => ro.disconnect();
   }, []);
   const compact = headerW < 640; // esconde caminho, contas e o rótulo "Rodar"
-  const narrow = headerW < 470;  // providers viram só o ponto colorido
+  const narrow = headerW < 470;  // providers viram só o ponto colorido; ícones 2ºs vão pro menu
+  const tiny = headerW < 360;    // some também o stepper de fonte (resta árvore/sessões/⋯)
 
   /** Roda o agente do provider NESTE terminal (Claude usa o fluxo dedicado). */
   function runProvider(p: { command: string }) {
@@ -238,7 +239,7 @@ export function PaneHeader({
         {/* providers movidos para a Linha 2 */}
 
         {/* Stepper de fonte do terminal — A menor / A maior */}
-        {viewMode === 'terminal' && (
+        {viewMode === 'terminal' && !tiny && (
           <div className="flex items-center gap-0.5 rounded-xl bg-bg-base p-1" style={{ boxShadow: 'inset 0 0 0 1px var(--border-subtle)' }}>
             <IconBtn onClick={() => updateSettings({ fontSize: Math.max(9, fontSize - 1) })} title={`Diminuir a fonte do terminal (${fontSize}px)`} disabled={fontSize <= 9}>
               <span className="font-bold leading-none" style={{ fontSize: 11 }}>A</span>
@@ -270,13 +271,13 @@ export function PaneHeader({
               accountId={accountId}
             />
 
-            {pane.projectPath && (
+            {pane.projectPath && !narrow && (
               <IconBtn onClick={onOpenBrowser} title="Abrir o Browser deste projeto ao lado (na URL do dev, se rodando)">
                 <Globe size={16} />
               </IconBtn>
             )}
 
-            {pane.projectPath && (
+            {pane.projectPath && !narrow && (
               <div className="relative" ref={splitRef}>
                 <IconBtn
                   onClick={() => setSplitOpen((v) => !v)}
@@ -320,25 +321,29 @@ export function PaneHeader({
               </div>
             )}
 
-            <span className="mx-1 h-5 w-px shrink-0" style={{ background: 'var(--border-default)' }} />
+            {!narrow && (
+              <>
+                <span className="mx-1 h-5 w-px shrink-0" style={{ background: 'var(--border-default)' }} />
 
-            <IconBtn onClick={onToggleSpeech} disabled={!hasTerminal}
-              title={recording ? 'Parar gravação' : 'Ditar por voz (PT-BR)'}
-              active={recording} activeColor="var(--danger)">
-              {recording ? <MicOff size={16} className="claude-dot" /> : <Mic size={16} />}
-            </IconBtn>
-
-            {pane.projectPath && (
-              <span ref={paletteRef} className="flex">
-                <IconBtn onClick={() => setEditingProject((v) => !v)} title="Personalizar projeto — cor e ícone" active={editingProject} activeColor="var(--accent)">
-                  <Palette size={16} />
+                <IconBtn onClick={onToggleSpeech} disabled={!hasTerminal}
+                  title={recording ? 'Parar gravação' : 'Ditar por voz (PT-BR)'}
+                  active={recording} activeColor="var(--danger)">
+                  {recording ? <MicOff size={16} className="claude-dot" /> : <Mic size={16} />}
                 </IconBtn>
-              </span>
-            )}
 
-            <IconBtn onClick={onClearTerminal} title="Limpar terminal">
-              <RotateCcw size={16} />
-            </IconBtn>
+                {pane.projectPath && (
+                  <span ref={paletteRef} className="flex">
+                    <IconBtn onClick={() => setEditingProject((v) => !v)} title="Personalizar projeto — cor e ícone" active={editingProject} activeColor="var(--accent)">
+                      <Palette size={16} />
+                    </IconBtn>
+                  </span>
+                )}
+
+                <IconBtn onClick={onClearTerminal} title="Limpar terminal">
+                  <RotateCcw size={16} />
+                </IconBtn>
+              </>
+            )}
           </div>
         )}
 
@@ -377,6 +382,44 @@ export function PaneHeader({
                   onClick={() => doSplit('vertical', 'after')}
                 />
               </div>
+
+              {/* ===== Ações rápidas — aparecem só quando os ícones da barra colapsam ===== */}
+              {narrow && (
+                <>
+                  <div className="border-t border-border-subtle" />
+                  <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                    Ações rápidas
+                  </div>
+                  {pane.projectPath && (
+                    <MenuItem
+                      icon={<FolderTree size={13} />}
+                      label="Árvore de arquivos"
+                      shortcut="Ctrl+B"
+                      onClick={() => {
+                        if (pane.projectPath) toggleTreeFor(pane.projectPath, pane.projectName ?? 'Projeto');
+                        setMenuOpen(false);
+                      }}
+                    />
+                  )}
+                  {pane.projectPath && (
+                    <MenuItem
+                      icon={<Globe size={13} />}
+                      label="Abrir browser ao lado"
+                      onClick={() => { onOpenBrowser(); setMenuOpen(false); }}
+                    />
+                  )}
+                  <MenuItem
+                    icon={recording ? <MicOff size={13} /> : <Mic size={13} />}
+                    label={recording ? 'Parar gravação' : 'Ditar por voz (PT-BR)'}
+                    onClick={() => { onToggleSpeech(); setMenuOpen(false); }}
+                  />
+                  <MenuItem
+                    icon={<RotateCcw size={13} />}
+                    label="Limpar terminal"
+                    onClick={() => { onClearTerminal(); setMenuOpen(false); }}
+                  />
+                </>
+              )}
 
               {/* ===== Projeto ===== */}
               {pane.projectPath && (
@@ -532,11 +575,11 @@ export function PaneHeader({
               {shortPath(pane.projectPath)}
             </span>
           )}
-          {pane.projectPath && <GitChip projectPath={pane.projectPath} />}
+          {pane.projectPath && !tiny && <GitChip projectPath={pane.projectPath} />}
           {pane.projectPath && (
             <DevServerControl projectPath={pane.projectPath} variant="header" accent={accent} />
           )}
-          {pane.projectPath && <RemoteChip projectPath={pane.projectPath} accent={accent} compact={compact} />}
+          {pane.projectPath && !narrow && <RemoteChip projectPath={pane.projectPath} accent={accent} compact={compact} />}
           {onSetAccount && !compact && <AccountChip accountId={accountId} onSelect={onSetAccount} accent={accent} />}
           {onSetAccount && !compact && <ModelUsageChip model={claudeModel ?? null} accent={accent} accountId={accountId} />}
 

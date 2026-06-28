@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { DevServerPhase, DevServerState, PackageManager } from '../../shared/types';
@@ -112,6 +112,56 @@ function pushLog(m: ManagedDevServer, raw: string) {
   emit(m.state);
 }
 
+// PATH "real" do usuário no macOS/Linux. Aberto pelo Finder/Dock, o app herda
+// só o PATH mínimo do launchd — sem homebrew/nvm/bun/npm-global —, então um
+// `npm install` via `/bin/sh -c` falha com "npm: command not found" (exit 127).
+// Perguntamos ao shell de login+interativo (`-lic` carrega .zprofile E .zshrc,
+// onde esses PATHs costumam ser definidos) e cacheamos. Mesma ideia do
+// windowsRegistryPath() do ptyManager.
+let cachedUnixPath: string | null = null;
+const PATH_MARKER = '__VOLTZ_PATH__';
+function loginShellPath(): string {
+  if (cachedUnixPath !== null) return cachedUnixPath;
+  let result = '';
+  try {
+    const shell = process.env.SHELL || '/bin/zsh';
+    // Marcador isola o PATH de qualquer banner que o .zshrc imprima.
+    const out = execFileSync(shell, ['-lic', `printf '${PATH_MARKER}%s\\n' "$PATH"`], {
+      encoding: 'utf8',
+      timeout: 6000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const line = out.split(/\r?\n/).find((l) => l.startsWith(PATH_MARKER));
+    result = line ? line.slice(PATH_MARKER.length).trim() : '';
+  } catch {
+    result = '';
+  }
+  cachedUnixPath = result;
+  return result;
+}
+
+/** Mescla dois PATHs (estilo Unix, `:`), sem duplicatas, priorizando `extra`. */
+function mergeUnixPath(current: string, extra: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of [...extra.split(':'), ...current.split(':')]) {
+    const p = part.trim();
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out.join(':');
+}
+
+/** Env do spawn: no macOS/Linux injeta o PATH do shell de login do usuário. */
+function spawnEnv(): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') return process.env;
+  const userPath = loginShellPath();
+  if (!userPath) return process.env;
+  return { ...process.env, PATH: mergeUnixPath(process.env.PATH || '', userPath) };
+}
+
 function spawnShell(cmd: string, cwd: string): ChildProcess {
   const isWin = process.platform === 'win32';
   if (isWin) {
@@ -124,7 +174,7 @@ function spawnShell(cmd: string, cwd: string): ChildProcess {
   }
   return spawn(cmd, {
     cwd,
-    env: process.env,
+    env: spawnEnv(),
     shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

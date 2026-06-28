@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, screen, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, screen, Menu, type MenuItemConstructorOptions } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -209,6 +209,16 @@ async function createWindow() {
     if (input.type !== 'keyDown') return;
     const k = input.key.toLowerCase();
     const ctrl = input.control || input.meta;
+    // Bloqueia RECARREGAR O APP — F5, Cmd+R e Cmd/Ctrl+Shift+R (force reload):
+    // isso recarrega o renderer e ZERA todos os terminais/estado. O reload segue
+    // valendo DENTRO do browser embutido (<webview>), que tem webContents próprio
+    // e não passa por aqui. NÃO bloqueamos Ctrl+R puro de propósito — ele é a
+    // busca reversa do histórico do terminal. (No macOS o menu padrão também é
+    // trocado por um sem "Recarregar"; veja buildMacMenu.)
+    if (k === 'f5' || (input.meta && k === 'r') || (ctrl && input.shift && k === 'r')) {
+      event.preventDefault();
+      return;
+    }
     // DevTools — antes vinha do menu padrão (agora removido). F12 ou Ctrl+Shift+I.
     if (k === 'f12' || (ctrl && input.shift && k === 'i')) {
       event.preventDefault();
@@ -281,6 +291,33 @@ function registerDialogIpc() {
   });
 }
 
+/**
+ * Menu do macOS equivalente ao padrão, porém SEM "Recarregar"/"Forçar
+ * recarregamento" (eles recarregam o renderer e zeram todos os terminais).
+ * Usa os roles prontos do macOS (appMenu/editMenu/windowMenu) e uma aba
+ * "Visualizar" própria — sem reload, mas com tela cheia, zoom e DevTools.
+ */
+function buildMacMenu(): Menu {
+  const template: MenuItemConstructorOptions[] = [
+    { role: 'appMenu' },   // Sobre · Serviços · Ocultar · Sair (Cmd+Q)
+    { role: 'editMenu' },  // Desfazer/Refazer · Recortar/Copiar/Colar · Selecionar tudo
+    {
+      label: 'Visualizar',
+      submenu: [
+        // De propósito SEM { role: 'reload' } e { role: 'forceReload' }.
+        { role: 'togglefullscreen' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+      ],
+    },
+    { role: 'windowMenu' }, // Minimizar · Zoom · Trazer para frente
+  ];
+  return Menu.buildFromTemplate(template);
+}
+
 app.whenReady().then(async () => {
   // Remove o menu padrão do Electron no Windows/Linux. Seus aceleradores
   // (undo=Ctrl+Z, selectAll=Ctrl+A, reload=Ctrl+R…) sequestravam essas teclas
@@ -289,7 +326,14 @@ app.whenReady().then(async () => {
   // terminal de verdade. O DevTools é reaberto via F12/Ctrl+Shift+I.
   // No macOS o menu usa Cmd (não Ctrl), então não há conflito — e removê-lo
   // tiraria convenções essenciais (Cmd+Q, Cmd+C/V); por isso mantemos lá.
-  if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+  } else {
+    // macOS: o menu é essencial (Cmd+Q, Cmd+C/V…), mas o menu PADRÃO traz
+    // "Recarregar" (Cmd+R) e "Forçar recarregamento" (Cmd+Shift+R), que zeram
+    // todos os terminais. Trocamos por um menu equivalente SEM esses itens.
+    Menu.setApplicationMenu(buildMacMenu());
+  }
 
   // Allow microphone for speech recognition
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
