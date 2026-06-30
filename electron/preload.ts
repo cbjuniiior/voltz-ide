@@ -161,6 +161,7 @@ const api: IpcApi = {
       ipcRenderer.on('browser:agentActivity', l);
       return () => ipcRenderer.removeListener('browser:agentActivity', l);
     },
+    setScope: (snapshot) => ipcRenderer.invoke('browser:setScope', snapshot),
   },
   devPorts: {
     scan: () => ipcRenderer.invoke('devPorts:scan'),

@@ -20,6 +20,7 @@ import { getTerminalTheme } from '@/lib/terminalThemes';
 import { newId, collectLeaves } from '@/lib/layoutTree';
 import { PaneHeader } from './PaneHeader';
 import { BrowserPane } from './BrowserPane';
+import { newAgentToken, setAgentScope, clearAgentScope } from '@/lib/browserScope';
 import { getProjectColor } from '@/lib/projectColors';
 import { FolderOpen, FolderPlus, X as XIcon, Star, ArrowLeftRight, Paperclip, Search, ChevronUp, ChevronDown } from 'lucide-react';
 
@@ -189,6 +190,16 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  // Token único deste terminal (escopo do navegador por aba). Exportado como
+  // VOLTZ_TERMINAL_TOKEN no PTY → o claude o envia no header X-Voltz-Terminal.
+  const agentTokenRef = useRef<string>(newAgentToken());
+  // Registra este TERMINAL (agente) e a aba dele no escopo do navegador. Só
+  // painéis de terminal são agentes; painéis de navegador são alvos, não agentes.
+  useEffect(() => {
+    if (pane.viewMode === 'browser') { clearAgentScope(pane.id); return; }
+    setAgentScope(pane.id, agentTokenRef.current, tabId);
+    return () => clearAgentScope(pane.id);
+  }, [pane.id, tabId, pane.viewMode]);
   const settings = useSettingsStore((s) => s.settings);
   const updatePane = useWorkspaceStore((s) => s.updatePane);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
@@ -580,8 +591,12 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       shell: settings.defaultShell,
       cols: term.cols,
       rows: term.rows,
-      // Faz o `claude` deste terminal usar a conta escolhida (principal = sem env).
-      env: envConfigDirRef.current ? { CLAUDE_CONFIG_DIR: envConfigDirRef.current } : undefined,
+      // VOLTZ_TERMINAL_TOKEN: identidade deste terminal para o MCP do navegador
+      // (isolamento por aba). CLAUDE_CONFIG_DIR: conta escolhida (principal = sem).
+      env: {
+        VOLTZ_TERMINAL_TOKEN: agentTokenRef.current,
+        ...(envConfigDirRef.current ? { CLAUDE_CONFIG_DIR: envConfigDirRef.current } : {}),
+      },
     }).then((res) => {
       if (!res.ok) {
         term.write(`\r\n\x1b[31mErro ao iniciar terminal: ${res.error}\x1b[0m\r\n`);
@@ -927,6 +942,7 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
         <div className="flex-1 overflow-hidden" style={{ display: viewMode === 'browser' ? 'block' : 'none' }}>
           <BrowserPane
             paneId={pane.id}
+            tabId={tabId}
             projectPath={pane.projectPath ?? ''}
             projectName={pane.projectName ?? undefined}
             accentColor={accent}

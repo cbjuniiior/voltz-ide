@@ -10,6 +10,7 @@ import { useDevServersStore, selectDevServer } from '@/stores/devServers';
 import { useSettingsStore } from '@/stores/settings';
 import { newId } from '@/lib/layoutTree';
 import { toast } from '@/stores/toasts';
+import { setBrowserScope, clearBrowserScope } from '@/lib/browserScope';
 
 // Subset of Electron's WebviewTag we use.
 interface WebviewEl extends HTMLElement {
@@ -63,6 +64,8 @@ const AGENT_ACTION_LABEL: Record<string, string> = {
 
 interface Props {
   paneId: string;
+  /** Aba (tab) à qual este navegador pertence — usada no isolamento por aba. */
+  tabId: string;
   projectPath: string;
   projectName?: string;
   accentColor?: string;
@@ -96,9 +99,8 @@ function tabLabel(tab: BrowserTab): string {
 }
 
 export function BrowserPane({
-  paneId, projectPath, projectName, accentColor, initialUrl, visible, onUrlChange, onClose, dragHandleProps,
+  paneId, tabId, projectPath, projectName, accentColor, initialUrl, visible, onUrlChange, onClose, dragHandleProps,
 }: Props) {
-  void paneId;
   const webviewRef = useRef<WebviewEl | null>(null);
   const readyRef = useRef(false);
   const addressRef = useRef<HTMLInputElement | null>(null);
@@ -207,6 +209,8 @@ export function BrowserPane({
       readyRef.current = true;
       try {
         wcIdRef.current = wv.getWebContentsId();
+        // Isolamento por aba: associa este webview à sua aba (tabId) para o MCP.
+        setBrowserScope(paneId, wcIdRef.current, tabId);
         if (!defaultUaRef.current) defaultUaRef.current = wv.getUserAgent();
         const ua = deviceRef.current.ua;
         wv.setUserAgent(ua ?? defaultUaRef.current);
@@ -289,6 +293,9 @@ export function BrowserPane({
     });
     return off;
   }, []);
+
+  // Remove este navegador do escopo de isolamento ao desmontar o painel.
+  useEffect(() => () => clearBrowserScope(paneId), [paneId]);
   useEffect(() => {
     if (!agentAct) return;
     const t = setTimeout(() => setAgentAct(null), 4500);

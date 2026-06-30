@@ -30,6 +30,39 @@ const MAX_CONSOLE = 200;
 const views = new Map<number, TrackedView>();
 let lastActiveId: number | null = null;
 
+// ===========================================================================
+// ESCOPO (isolamento por aba): cada terminal só enxerga os navegadores da SUA
+// aba. O renderer informa o mapeamento (token do terminal → aba, e webview →
+// aba); o servidor passa o token do chamador (header X-Voltz-Terminal).
+// ===========================================================================
+const agentTabByToken = new Map<string, string>(); // token do terminal → tabId
+const tabByWebContents = new Map<number, string>(); // webContentsId → tabId
+
+/** Substitui o mapa de escopo (snapshot completo vindo do renderer). */
+export function setScope(snapshot: { agents?: Record<string, string>; browsers?: Record<string, string> }): void {
+  agentTabByToken.clear();
+  for (const [token, tabId] of Object.entries(snapshot.agents ?? {})) {
+    if (token && tabId) agentTabByToken.set(token, tabId);
+  }
+  tabByWebContents.clear();
+  for (const [wcId, tabId] of Object.entries(snapshot.browsers ?? {})) {
+    if (tabId) tabByWebContents.set(Number(wcId), tabId);
+  }
+}
+
+/** Aba do terminal que está chamando (null se token desconhecido/ausente). */
+function callerTab(token?: string | null): string | null {
+  if (!token) return null;
+  return agentTabByToken.get(token) ?? null;
+}
+
+/** O webview `wcId` está na mesma aba do terminal chamador? */
+function inScope(wcId: number, token?: string | null): boolean {
+  const tab = callerTab(token);
+  if (!tab) return false;
+  return tabByWebContents.get(wcId) === tab;
+}
+
 /** Emite eventos de atividade do agente (main → renderer, para o indicador). */
 export const agentActivity = new EventEmitter();
 
@@ -77,11 +110,12 @@ export function trackWebview(wc: WebContents): void {
   });
 }
 
-/** Lista das abas (webviews) vivas, do navegador interno. */
-export function listTargets(): Array<{ id: number; url: string; title: string; active: boolean }> {
+/** Lista os navegadores vivos NA MESMA ABA do terminal chamador. */
+export function listTargets(token?: string | null): Array<{ id: number; url: string; title: string; active: boolean }> {
   const out: Array<{ id: number; url: string; title: string; active: boolean }> = [];
   for (const [id, v] of views) {
     if (v.wc.isDestroyed()) continue;
+    if (!inScope(id, token)) continue; // só os da aba deste terminal
     let url = '';
     let title = '';
     try { url = v.wc.getURL(); } catch { /* ignore */ }
@@ -91,33 +125,34 @@ export function listTargets(): Array<{ id: number; url: string; title: string; a
   return out;
 }
 
-/** Resolve o webContents alvo. Sem id, usa a aba ativa (mais recente). */
-function resolveTarget(targetId?: number): WebContents | null {
+/**
+ * Resolve o webContents alvo DENTRO do escopo (aba) do terminal chamador.
+ * Sem id, usa o navegador da aba do chamador (o mais recente, se houver vários).
+ */
+function resolveTarget(targetId: number | undefined, token: string | null | undefined): WebContents | null {
   if (typeof targetId === 'number') {
     const v = views.get(targetId);
-    if (v && !v.wc.isDestroyed()) return v.wc;
-    return null;
+    if (v && !v.wc.isDestroyed() && inScope(targetId, token)) return v.wc;
+    return null; // alvo inexistente OU fora da aba deste terminal → negado
   }
-  if (lastActiveId != null) {
-    const v = views.get(lastActiveId);
-    if (v && !v.wc.isDestroyed()) return v.wc;
-  }
-  // fallback: webview vivo mais recentemente navegado.
+  // Sem id: melhor navegador DA ABA do chamador (mais recentemente navegado).
   let best: WebContents | null = null;
   let bestTs = -1;
-  for (const v of views.values()) {
-    if (v.wc.isDestroyed()) continue;
+  for (const [id, v] of views) {
+    if (v.wc.isDestroyed() || !inScope(id, token)) continue;
     if (v.lastNavTs > bestTs) { bestTs = v.lastNavTs; best = v.wc; }
   }
   return best;
 }
 
 class NoTargetError extends Error {
-  constructor() { super('Nenhuma aba do navegador interno está aberta. Abra o painel "Navegador" no Voltz e carregue uma página.'); }
+  constructor() {
+    super('Nenhum navegador na MESMA aba deste terminal. Para eu ver/controlar, abra um navegador NESTA aba (ex.: um split de navegador ao lado do terminal). Cada terminal só acessa o navegador da sua própria aba.');
+  }
 }
 
-function requireTarget(targetId?: number): WebContents {
-  const wc = resolveTarget(targetId);
+function requireTarget(targetId: number | undefined, token: string | null | undefined): WebContents {
+  const wc = resolveTarget(targetId, token);
   if (!wc) throw new NoTargetError();
   return wc;
 }
@@ -161,8 +196,8 @@ function safe<T>(fn: () => T, fallback: T): T {
 // Operações usadas pelas ferramentas MCP
 // ===========================================================================
 
-export async function opGetState(targetId?: number) {
-  return stateOf(requireTarget(targetId));
+export async function opGetState(targetId?: number, token?: string | null) {
+  return stateOf(requireTarget(targetId, token));
 }
 
 /**
@@ -186,8 +221,8 @@ async function captureLive(wc: WebContents): Promise<NativeImage | null> {
   return null;
 }
 
-export async function opScreenshot(targetId?: number): Promise<{ pngBase64: string; width: number; height: number; url: string }> {
-  const wc = requireTarget(targetId);
+export async function opScreenshot(targetId?: number, token?: string | null): Promise<{ pngBase64: string; width: number; height: number; url: string }> {
+  const wc = requireTarget(targetId, token);
   emitActivity('screenshot', wc.id);
   const img = await captureLive(wc);
   if (!img || img.isEmpty()) {
@@ -205,8 +240,8 @@ export async function opScreenshot(targetId?: number): Promise<{ pngBase64: stri
   };
 }
 
-export async function opNavigate(url: string, targetId?: number) {
-  const wc = requireTarget(targetId);
+export async function opNavigate(url: string, targetId?: number, token?: string | null) {
+  const wc = requireTarget(targetId, token);
   emitActivity('navigate', wc.id, url);
   try {
     await wc.loadURL(url);
@@ -262,8 +297,8 @@ function pointCode(ripple: boolean): string {
     + "},370);";
 }
 
-export async function opClick(selector: string, targetId?: number) {
-  const wc = requireTarget(targetId);
+export async function opClick(selector: string, targetId?: number, token?: string | null) {
+  const wc = requireTarget(targetId, token);
   emitActivity('click', wc.id, selector);
   const code = `(function(){${CURSOR_BOOTSTRAP}`
     + `var el=document.querySelector(${JSON.stringify(selector)});`
@@ -275,8 +310,8 @@ export async function opClick(selector: string, targetId?: number) {
   return JSON.parse(String(raw)) as { ok: boolean; error?: string };
 }
 
-export async function opScrollTo(selector: string, targetId?: number) {
-  const wc = requireTarget(targetId);
+export async function opScrollTo(selector: string, targetId?: number, token?: string | null) {
+  const wc = requireTarget(targetId, token);
   emitActivity('scroll', wc.id, selector);
   const code = `(function(){${CURSOR_BOOTSTRAP}`
     + `var el=document.querySelector(${JSON.stringify(selector)});`
@@ -287,8 +322,8 @@ export async function opScrollTo(selector: string, targetId?: number) {
   return JSON.parse(String(raw)) as { ok: boolean; error?: string };
 }
 
-export async function opFill(selector: string, value: string, targetId?: number) {
-  const wc = requireTarget(targetId);
+export async function opFill(selector: string, value: string, targetId?: number, token?: string | null) {
+  const wc = requireTarget(targetId, token);
   emitActivity('fill', wc.id, selector);
   const code = `(function(){${CURSOR_BOOTSTRAP}`
     + `var el=document.querySelector(${JSON.stringify(selector)});`
@@ -305,8 +340,8 @@ export async function opFill(selector: string, value: string, targetId?: number)
   return JSON.parse(String(raw)) as { ok: boolean; error?: string };
 }
 
-export async function opEval(expression: string, targetId?: number): Promise<{ ok: boolean; value?: string; error?: string }> {
-  const wc = requireTarget(targetId);
+export async function opEval(expression: string, targetId?: number, token?: string | null): Promise<{ ok: boolean; value?: string; error?: string }> {
+  const wc = requireTarget(targetId, token);
   emitActivity('eval', wc.id);
   const code = `(()=>{try{const r=(function(){return (${expression});})();`
     + `return JSON.stringify({ok:true,value:(typeof r==='string'?r:JSON.stringify(r))});`
@@ -315,8 +350,8 @@ export async function opEval(expression: string, targetId?: number): Promise<{ o
   return JSON.parse(String(raw)) as { ok: boolean; value?: string; error?: string };
 }
 
-export function opReadConsole(targetId?: number, minLevel = 0): ConsoleEntry[] {
-  const wc = requireTarget(targetId);
+export function opReadConsole(targetId: number | undefined, minLevel: number, token?: string | null): ConsoleEntry[] {
+  const wc = requireTarget(targetId, token);
   const v = views.get(wc.id);
   if (!v) return [];
   return v.console.filter((c) => c.level >= minLevel);

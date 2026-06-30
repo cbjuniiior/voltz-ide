@@ -417,6 +417,9 @@ export interface IpcApi {
     /** Atividade do agente (MCP) sobre o navegador interno — para o indicador
      *  de transparência no BrowserPane. `webContentsId` identifica a aba tocada. */
     onAgentActivity: (cb: (e: { action: string; webContentsId: number; detail: string | null; ts: number }) => void) => () => void;
+    /** Informa ao main o escopo de isolamento por aba: token(terminal)→tabId e
+     *  webContentsId(navegador)→tabId. Cada terminal só acessa o navegador da sua aba. */
+    setScope: (snapshot: { agents: Record<string, string>; browsers: Record<string, string> }) => Promise<void>;
   };
   devPorts: {
     /** Lista processos servindo em portas TCP locais (inclui órfãos fora do app). */

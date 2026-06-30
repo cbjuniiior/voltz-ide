@@ -32,7 +32,7 @@ import { TelegramBridge } from './services/remote/telegramBridge';
 import { appendRemoteHistory } from './services/remote/history';
 import { registerRemoteIpc } from './ipc/remote';
 import { startBrowserMcpServer } from './services/browserMcpServer';
-import { trackWebview, agentActivity } from './services/browserAgentBridge';
+import { trackWebview, agentActivity, setScope } from './services/browserAgentBridge';
 import { registerVoltzMcpWithClaude } from './services/registerVoltzMcp';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -405,6 +405,14 @@ app.whenReady().then(async () => {
   // Encaminha as ações do agente sobre o navegador para a UI (indicador no BrowserPane).
   agentActivity.on('activity', (e) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:agentActivity', e);
+  });
+
+  // Escopo de isolamento por aba: o renderer informa token(terminal)→aba e
+  // webview→aba; o servidor MCP usa isso para cada terminal só ver o navegador
+  // da sua própria aba.
+  ipcMain.handle('browser:setScope', (_evt, snapshot: { agents?: Record<string, string>; browsers?: Record<string, string> }) => {
+    setScope(snapshot ?? {});
+    if (process.env.VOLTZ_SCOPE_DEBUG === '1') diag(`[scope] ${JSON.stringify(snapshot)}`);
   });
 
   // Sobe o servidor MCP do navegador e registra nas contas do Claude (escopo user

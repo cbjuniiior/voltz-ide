@@ -19,11 +19,14 @@ import {
 
 const PROTOCOL_VERSION = '2025-06-18';
 
+/** Contexto da chamada — `token` identifica o TERMINAL chamador (escopo por aba). */
+interface ToolCtx { token: string | null }
+
 interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
+  handler: (args: Record<string, unknown>, ctx: ToolCtx) => Promise<Array<Record<string, unknown>>>;
 }
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
@@ -38,11 +41,11 @@ const TARGET_PROP = {
 const TOOLS: ToolDef[] = [
   {
     name: 'browser_list_targets',
-    description: 'Lista as abas abertas no navegador interno do Voltz IDE (id, url, título). Use o id como targetId nas outras ferramentas. A aba "active:true" é a usada por padrão.',
+    description: 'Lista os navegadores abertos NA MESMA ABA deste terminal (id, url, título). Use o id como targetId nas outras ferramentas. Você só enxerga o navegador da sua própria aba — não o de outros terminais/abas.',
     inputSchema: { type: 'object', properties: {} },
-    async handler() {
-      const targets = listTargets();
-      if (targets.length === 0) return [textBlock('Nenhuma aba aberta no navegador interno. Abra o painel "Navegador" no Voltz e carregue uma página.')];
+    async handler(_args, ctx) {
+      const targets = listTargets(ctx.token);
+      if (targets.length === 0) return [textBlock('Nenhum navegador na mesma aba deste terminal. Abra um navegador NESTA aba (ex.: um split de navegador ao lado do terminal) para eu poder ver/controlar.')];
       return [textBlock(JSON.stringify(targets, null, 2))];
     },
   },
@@ -50,8 +53,8 @@ const TOOLS: ToolDef[] = [
     name: 'browser_get_state',
     description: 'Estado atual da aba: url, título, se está carregando e se pode voltar/avançar.',
     inputSchema: { type: 'object', properties: { ...TARGET_PROP } },
-    async handler(args) {
-      const s = await opGetState(num(args.targetId));
+    async handler(args, ctx) {
+      const s = await opGetState(num(args.targetId), ctx.token);
       return [textBlock(JSON.stringify(s, null, 2))];
     },
   },
@@ -59,8 +62,8 @@ const TOOLS: ToolDef[] = [
     name: 'browser_screenshot',
     description: 'Captura a página visível da aba e retorna a imagem (PNG) para você analisar visualmente. Use para validar layout, conferir se algo renderizou, comparar com o esperado.',
     inputSchema: { type: 'object', properties: { ...TARGET_PROP } },
-    async handler(args) {
-      const shot = await opScreenshot(num(args.targetId));
+    async handler(args, ctx) {
+      const shot = await opScreenshot(num(args.targetId), ctx.token);
       return [
         { type: 'image', data: shot.pngBase64, mimeType: 'image/png' },
         textBlock(`Screenshot de ${shot.url || '(sem url)'} — ${shot.width}×${shot.height}px.`),
@@ -78,8 +81,8 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
-      const s = await opNavigate(str(args.url), num(args.targetId));
+    async handler(args, ctx) {
+      const s = await opNavigate(str(args.url), num(args.targetId), ctx.token);
       return [textBlock(JSON.stringify(s, null, 2))];
     },
   },
@@ -94,8 +97,8 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
-      const r = await opScrollTo(str(args.selector), num(args.targetId));
+    async handler(args, ctx) {
+      const r = await opScrollTo(str(args.selector), num(args.targetId), ctx.token);
       return [textBlock(r.ok ? 'Rolei até o elemento e apontei o cursor.' : `Falhou: ${r.error}`)];
     },
   },
@@ -110,8 +113,8 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
-      const r = await opClick(str(args.selector), num(args.targetId));
+    async handler(args, ctx) {
+      const r = await opClick(str(args.selector), num(args.targetId), ctx.token);
       return [textBlock(r.ok ? 'Clique realizado.' : `Falhou: ${r.error}`)];
     },
   },
@@ -127,8 +130,8 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
-      const r = await opFill(str(args.selector), str(args.value), num(args.targetId));
+    async handler(args, ctx) {
+      const r = await opFill(str(args.selector), str(args.value), num(args.targetId), ctx.token);
       return [textBlock(r.ok ? 'Campo preenchido.' : `Falhou: ${r.error}`)];
     },
   },
@@ -143,8 +146,8 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
-      const r = await opEval(str(args.expression), num(args.targetId));
+    async handler(args, ctx) {
+      const r = await opEval(str(args.expression), num(args.targetId), ctx.token);
       return [textBlock(r.ok ? (r.value ?? 'undefined') : `Erro: ${r.error}`)];
     },
   },
@@ -158,9 +161,9 @@ const TOOLS: ToolDef[] = [
         ...TARGET_PROP,
       },
     },
-    async handler(args) {
+    async handler(args, ctx) {
       const minLevel = args.onlyErrors === true ? 2 : 0;
-      const msgs = opReadConsole(num(args.targetId), minLevel);
+      const msgs = opReadConsole(num(args.targetId), minLevel, ctx.token);
       if (msgs.length === 0) return [textBlock('Console vazio (nenhuma mensagem capturada desde o último carregamento).')];
       const lines = msgs.map((m) => {
         const tag = m.level >= 3 ? 'ERROR' : m.level === 2 ? 'WARN' : 'LOG';
@@ -184,7 +187,7 @@ function rpcError(id: string | number | null | undefined, code: number, message:
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
 }
 
-async function handleMessage(msg: RpcMessage): Promise<object | null> {
+async function handleMessage(msg: RpcMessage, ctx: ToolCtx): Promise<object | null> {
   const { method, id } = msg;
   const isNotification = id === undefined || id === null;
 
@@ -208,7 +211,7 @@ async function handleMessage(msg: RpcMessage): Promise<object | null> {
       if (!tool) return rpcError(id, -32602, `Ferramenta desconhecida: ${name}`);
       const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
       try {
-        const content = await tool.handler(args);
+        const content = await tool.handler(args, ctx);
         return rpcResult(id, { content });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
@@ -274,13 +277,20 @@ export function startBrowserMcpServer(): Promise<McpServerInfo> {
       }
       if (req.method !== 'POST') { res.writeHead(405).end(); return; }
 
+      // Token do TERMINAL chamador (expandido pelo claude a partir de
+      // VOLTZ_TERMINAL_TOKEN no header X-Voltz-Terminal). Define o escopo (aba).
+      const rawTok = req.headers['x-voltz-terminal'];
+      const headerTok = Array.isArray(rawTok) ? rawTok[0] : rawTok;
+      // Ignora valor não-expandido (terminal sem o env var) → sem escopo.
+      const ctx: ToolCtx = { token: headerTok && !headerTok.includes('${') ? headerTok : null };
+
       try {
         const body = await readBody(req);
         const parsed = JSON.parse(body) as RpcMessage | RpcMessage[];
         const messages = Array.isArray(parsed) ? parsed : [parsed];
         const responses: object[] = [];
         for (const m of messages) {
-          const r = await handleMessage(m);
+          const r = await handleMessage(m, ctx);
           if (r) responses.push(r);
         }
         if (responses.length === 0) { res.writeHead(202).end(); return; }

@@ -77,6 +77,9 @@ export async function registerVoltzMcpWithClaude(info: McpServerInfo): Promise<v
       '--transport', 'http',
       SERVER_NAME, info.url,
       '--header', `Authorization: Bearer ${info.token}`,
+      // Identidade do terminal (escopo por aba): o claude expande
+      // ${VOLTZ_TERMINAL_TOKEN} do ambiente do terminal em runtime. Literal aqui.
+      '--header', 'X-Voltz-Terminal: ${VOLTZ_TERMINAL_TOKEN}',
     ], cfg);
     if (!add.ok) diag(`falha ao registrar em ${cfg ?? '(principal)'}: ${add.err}`);
   }
@@ -90,6 +93,8 @@ export async function registerVoltzMcpForDir(info: McpServerInfo, dir: string): 
   await runClaude(det.path, ['mcp', 'remove', SERVER_NAME, '--scope', 'user'], dir);
   await runClaude(det.path, [
     'mcp', 'add', '--scope', 'user', '--transport', 'http',
-    SERVER_NAME, info.url, '--header', `Authorization: Bearer ${info.token}`,
+    SERVER_NAME, info.url,
+    '--header', `Authorization: Bearer ${info.token}`,
+    '--header', 'X-Voltz-Terminal: ${VOLTZ_TERMINAL_TOKEN}',
   ], dir);
 }
