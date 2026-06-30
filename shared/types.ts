@@ -397,7 +397,9 @@ export interface IpcApi {
     onCloneProgress: (cb: (p: { phase: string; percent: number }) => void) => () => void;
   };
   git: {
-    info: (root: string) => Promise<{ isRepo: boolean; branch: string | null; changes: number }>;
+    info: (root: string) => Promise<{ isRepo: boolean; branch: string | null; changes: number; ahead: number; behind: number; hasUpstream: boolean }>;
+    /** Atualiza as refs do remoto (origin) sem mexer nos arquivos. */
+    fetch: (root: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     branches: (root: string) => Promise<string[]>;
     checkout: (root: string, branch: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     status: (root: string) => Promise<{ isRepo: boolean; branch: string | null; ahead: number; behind: number; files: GitFileStatus[] }>;
@@ -410,6 +412,12 @@ export interface IpcApi {
     worktreeList: (root: string) => Promise<Array<{ path: string; branch: string | null }>>;
     worktreeAdd: (root: string, name: string) => Promise<{ ok: true; path: string; branch: string } | { ok: false; error: string }>;
     worktreeRemove: (root: string, wtPath: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
+  liveEdit: {
+    /** Grava o CSS gerado no projeto (voltz-live-edits.css) e persiste as edições por URL. */
+    save: (projectPath: string, url: string, css: string, editMap: unknown) => Promise<{ ok: true; file: string } | { ok: false; error: string }>;
+    /** Edições salvas para reaplicar nesta URL (ou null). */
+    get: (projectPath: string, url: string) => Promise<Record<string, { styles?: Record<string, string>; text?: string }> | null>;
   };
   browser: {
     clearCache: () => Promise<{ ok: true }>;

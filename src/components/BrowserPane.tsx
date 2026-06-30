@@ -5,13 +5,15 @@ import {
   Zap, Bug, Eraser, Plus, Lock, Search, Smartphone, Monitor,
   ZoomIn, ZoomOut, Camera, SquareTerminal, RotateCcw, ChevronDown,
   Trash2, AlertTriangle, Bot, GripVertical,
-  PanelTop, PanelBottom, PanelLeft, PanelRight,
+  PanelTop, PanelBottom, PanelLeft, PanelRight, Wand2,
 } from 'lucide-react';
 import { useDevServersStore, selectDevServer } from '@/stores/devServers';
 import { useSettingsStore } from '@/stores/settings';
 import { newId } from '@/lib/layoutTree';
 import { toast } from '@/stores/toasts';
 import { setBrowserScope, clearBrowserScope } from '@/lib/browserScope';
+import { EDITOR_SCRIPT, applySavedScript, cssFromEdits, loadFontScript, type SelectionInfo, type EditMap } from '@/lib/liveEditor';
+import { LiveEditorPanel } from './LiveEditorPanel';
 
 // Subset of Electron's WebviewTag we use.
 interface WebviewEl extends HTMLElement {
@@ -33,6 +35,7 @@ interface WebviewEl extends HTMLElement {
   setZoomLevel(level: number): void;
   capturePage(): Promise<{ toDataURL(): string }>;
   getWebContentsId(): number;
+  executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
 }
 
 const UA_IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
@@ -150,6 +153,13 @@ export function BrowserPane({
   const [consoleSize, setConsoleSize] = useState(240);
   const [resizing, setResizing] = useState(false);
   const resizeRef = useRef<{ axis: 'x' | 'y'; start: number; startSize: number; sign: number } | null>(null);
+
+  // Modo Editor (live editor da página).
+  const [editMode, setEditMode] = useState(false);
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editModeRef = useRef(false);
+  editModeRef.current = editMode;
   const errorCount = consoleMsgs.filter((m) => m.level >= 3).length;
 
   const hasUrl = !!active.url;
@@ -234,7 +244,11 @@ export function BrowserPane({
         setCanFwd(wv.canGoForward());
       } catch { /* ignore */ }
     };
-    const onStop = () => { setLoading(false); syncNav(); };
+    const onStop = () => {
+      setLoading(false); syncNav();
+      void reapplySaved(); // reaplica as edições salvas a cada carregamento
+      if (editModeRef.current) void wv.executeJavaScript(EDITOR_SCRIPT).catch(() => {});
+    };
     const onTitle = (e: Event) => {
       const title = (e as unknown as { title?: string }).title;
       if (title) patchActive({ title });
@@ -246,6 +260,11 @@ export function BrowserPane({
     const onDidNavigate = () => { patchActive({ favicon: null }); setConsoleMsgs([]); syncNav(); };
     const onConsole = (e: Event) => {
       const ev = e as unknown as { level: number; message: string; line: number; sourceId: string };
+      // Canal do Modo Editor: seleção de elemento (não vai para o console visível).
+      if (typeof ev.message === 'string' && ev.message.startsWith('VOLTZ_SEL:')) {
+        try { setSelection(JSON.parse(ev.message.slice(10))); } catch { /* ignore */ }
+        return;
+      }
       setConsoleMsgs((prev) => {
         const next = prev.length >= 300 ? prev.slice(-260) : prev;
         return [...next, { id: ++consoleIdRef.current, level: ev.level ?? 1, text: ev.message ?? '', source: ev.sourceId ?? '', line: ev.line ?? 0 }];
@@ -399,6 +418,61 @@ export function BrowserPane({
     toast.success('Cache limpo');
   }
 
+  // ===== Modo Editor =====
+  const urlKey = () => ((webviewRef.current?.getURL() || active.url) || '').split('#')[0];
+
+  function applyProp(prop: string, value: string) {
+    void webviewRef.current?.executeJavaScript(`window.__voltzEdit&&window.__voltzEdit.apply(${JSON.stringify(prop)},${JSON.stringify(value)})`).catch(() => {});
+    setSelection((s) => (s ? { ...s, styles: { ...s.styles, [prop]: value } } : s));
+  }
+  function applyTextEdit(t: string) {
+    void webviewRef.current?.executeJavaScript(`window.__voltzEdit&&window.__voltzEdit.setText(${JSON.stringify(t)})`).catch(() => {});
+  }
+  async function reapplySaved() {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    try {
+      const map = await window.api.liveEdit.get(projectPath, urlKey());
+      if (map && Object.keys(map).length) await wv.executeJavaScript(applySavedScript(map as EditMap)).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  async function saveEdits() {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    setSavingEdit(true);
+    try {
+      const raw = await wv.executeJavaScript('JSON.stringify(window.__voltzEdit?window.__voltzEdit.dump():{})');
+      const map = JSON.parse(String(raw)) as EditMap;
+      if (!Object.keys(map).length) { toast.info('Nada para salvar', 'Edite algum elemento primeiro.'); return; }
+      const res = await window.api.liveEdit.save(projectPath, urlKey(), cssFromEdits(map), map);
+      if (res.ok) toast.success('Edições salvas', res.file ? 'voltz-live-edits.css no projeto' : 'salvo no app');
+      else toast.error('Falha ao salvar', res.error);
+    } catch (e) {
+      toast.error('Falha ao salvar', String((e as Error).message));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  // Liga/desliga o editor injetando/ativando o script na página.
+  useEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv || !readyRef.current) return;
+    if (editMode) {
+      void wv.executeJavaScript(EDITOR_SCRIPT).catch(() => {});
+      void (async () => {
+        try {
+          const map = await window.api.liveEdit.get(projectPath, urlKey());
+          if (map) await wv.executeJavaScript(`window.__voltzEdit&&window.__voltzEdit.load(${JSON.stringify(map)})`).catch(() => {});
+        } catch { /* ignore */ }
+      })();
+    } else {
+      void wv.executeJavaScript('window.__voltzEdit&&window.__voltzEdit.deactivate()').catch(() => {});
+      setSelection(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]);
+
   function applyDevice(id: string) {
     const dev = DEVICES.find((d) => d.id === id) ?? DEVICES[0];
     setDeviceId(id);
@@ -532,6 +606,7 @@ export function BrowserPane({
               {errorCount > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-3 min-w-[12px] items-center justify-center rounded-full px-0.5 text-[8px] font-bold text-white" style={{ background: 'var(--danger)' }}>{errorCount > 9 ? '9+' : errorCount}</span>}
             </span>
           </NavBtn>
+          <NavBtn onClick={() => setEditMode((v) => !v)} active={editMode} title="Modo Editor — editar a página (texto, cor, fonte, borda…) e salvar no CSS do projeto"><Wand2 size={14} /></NavBtn>
           <NavBtn onClick={toggleDevTools} title="DevTools completo (Chromium)"><Bug size={14} /></NavBtn>
         </div>
 
@@ -653,6 +728,20 @@ export function BrowserPane({
                 <RotateCw size={13} /> Recarregar
               </button>
             </div>
+          )}
+
+          {/* Painel do Modo Editor (sobre a página, à direita) */}
+          {editMode && (
+            <LiveEditorPanel
+              selection={selection}
+              accent={accent}
+              saving={savingEdit}
+              onApply={applyProp}
+              onText={applyTextEdit}
+              onLoadFont={(family) => void webviewRef.current?.executeJavaScript(loadFontScript(family)).catch(() => {})}
+              onSave={() => void saveEdits()}
+              onClose={() => setEditMode(false)}
+            />
           )}
         </div>
 

@@ -137,6 +137,7 @@ const api: IpcApi = {
   },
   git: {
     info: (root) => ipcRenderer.invoke('git:info', root),
+    fetch: (root) => ipcRenderer.invoke('git:fetch', root),
     branches: (root) => ipcRenderer.invoke('git:branches', root),
     checkout: (root, branch) => ipcRenderer.invoke('git:checkout', root, branch),
     status: (root) => ipcRenderer.invoke('git:status', root),
@@ -149,6 +150,10 @@ const api: IpcApi = {
     worktreeList: (root) => ipcRenderer.invoke('git:worktreeList', root),
     worktreeAdd: (root, name) => ipcRenderer.invoke('git:worktreeAdd', root, name),
     worktreeRemove: (root, wtPath) => ipcRenderer.invoke('git:worktreeRemove', root, wtPath),
+  },
+  liveEdit: {
+    save: (projectPath: string, url: string, css: string, editMap: unknown) => ipcRenderer.invoke('liveedit:save', projectPath, url, css, editMap),
+    get: (projectPath: string, url: string) => ipcRenderer.invoke('liveedit:get', projectPath, url),
   },
   browser: {
     clearCache: () => ipcRenderer.invoke('browser:clearCache'),

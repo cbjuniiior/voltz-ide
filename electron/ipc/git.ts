@@ -47,6 +47,12 @@ export interface GitInfo {
   isRepo: boolean;
   branch: string | null;
   changes: number;
+  /** Commits locais à frente do remoto (para push). */
+  ahead: number;
+  /** Commits do remoto à frente do local (para pull) — reflete o GitHub após um fetch. */
+  behind: number;
+  /** Há um upstream configurado (origin/…) — senão behind/ahead não fazem sentido. */
+  hasUpstream: boolean;
 }
 
 export interface GitFile {
@@ -58,12 +64,23 @@ export interface GitFile {
 }
 
 async function getInfo(root: string): Promise<GitInfo> {
-  const branchRes = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root);
-  if (branchRes.code !== 0) return { isRepo: false, branch: null, changes: 0 };
-  const branch = branchRes.stdout.trim() || null;
-  const statusRes = await runGit(['status', '--porcelain'], root);
-  const changes = statusRes.stdout.split('\n').filter((l) => l.trim().length > 0).length;
-  return { isRepo: true, branch, changes };
+  const res = await runGit(['status', '--porcelain=v1', '--branch'], root);
+  if (res.code !== 0) return { isRepo: false, branch: null, changes: 0, ahead: 0, behind: 0, hasUpstream: false };
+  let branch: string | null = null;
+  let ahead = 0, behind = 0, changes = 0, hasUpstream = false;
+  for (const line of res.stdout.split('\n')) {
+    if (!line) continue;
+    if (line.startsWith('## ')) {
+      const name = line.slice(3).split(' ')[0]; // "main...origin/main" ou "main"
+      branch = name.split('...')[0] || null;
+      hasUpstream = name.includes('...');
+      const am = line.match(/ahead (\d+)/); if (am) ahead = Number(am[1]);
+      const bm = line.match(/behind (\d+)/); if (bm) behind = Number(bm[1]);
+      continue;
+    }
+    changes++;
+  }
+  return { isRepo: true, branch, changes, ahead, behind, hasUpstream };
 }
 
 export function registerGitIpc() {
@@ -153,6 +170,14 @@ export function registerGitIpc() {
   ipcMain.handle('git:pull', async (_evt, root: string) => {
     const res = await runGit(['pull'], root, GIT_NET_TIMEOUT_MS);
     if (res.code !== 0) return { ok: false as const, error: (res.stderr || res.stdout).trim() || 'Falha no pull.' };
+    return { ok: true as const };
+  });
+
+  // Atualiza as refs do remoto (origin) SEM mexer nos arquivos — alimenta o
+  // "behind" do git:info, pra avisar que há commits novos no GitHub.
+  ipcMain.handle('git:fetch', async (_evt, root: string) => {
+    const res = await runGit(['fetch', '--quiet'], root, GIT_NET_TIMEOUT_MS);
+    if (res.code !== 0) return { ok: false as const, error: (res.stderr || res.stdout).trim() || 'Falha no fetch.' };
     return { ok: true as const };
   });
 

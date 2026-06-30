@@ -23,6 +23,7 @@ import { registerProjectMemoryIpc } from './ipc/projectMemory';
 import { registerSkillsIpc } from './ipc/skills';
 import { registerFilesIpc } from './ipc/files';
 import { registerGitIpc } from './ipc/git';
+import { registerLiveEditIpc } from './ipc/liveEdit';
 import { registerGithubIpc } from './ipc/github';
 import { registerSystemIpc } from './ipc/system';
 import { startProcMonitor } from './ipc/procMonitor';
@@ -356,6 +357,7 @@ app.whenReady().then(async () => {
   registerSkillsIpc();
   registerFilesIpc();
   registerGitIpc();
+  registerLiveEditIpc();
   registerGithubIpc(() => mainWindow);
   registerSystemIpc();
   startProcMonitor(() => mainWindow);

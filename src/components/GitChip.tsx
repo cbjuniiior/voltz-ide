@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { GitBranch, Check, Loader2 } from 'lucide-react';
+import { GitBranch, Check, Loader2, Download, Upload } from 'lucide-react';
 import { useGitStore, selectGit } from '@/stores/git';
 import { toast } from '@/stores/toasts';
 
@@ -17,6 +17,14 @@ export function GitChip({ projectPath }: Props) {
 
   // Carrega ao montar / trocar de projeto.
   useEffect(() => { void refresh(projectPath); }, [projectPath, refresh]);
+
+  // Checa o GitHub periodicamente (fetch + behind) e avisa se há commits novos.
+  useEffect(() => {
+    const check = useGitStore.getState().checkRemote;
+    void check(projectPath);
+    const id = setInterval(() => void check(projectPath), 90_000);
+    return () => clearInterval(id);
+  }, [projectPath]);
 
   // Atualiza ao voltar o foco e quando arquivos mudam (debounced).
   useEffect(() => {
@@ -61,6 +69,24 @@ export function GitChip({ projectPath }: Props) {
             {git.changes}
           </span>
         )}
+        {git.behind > 0 && (
+          <span
+            title={`${git.behind} commit(s) novo(s) no GitHub — clique para atualizar`}
+            className="flex h-4 items-center gap-0.5 rounded-full px-1 text-[9px] font-bold"
+            style={{ background: 'color-mix(in srgb, var(--info) 20%, transparent)', color: 'var(--info)' }}
+          >
+            <Download size={9} />{git.behind}
+          </span>
+        )}
+        {git.ahead > 0 && (
+          <span
+            title={`${git.ahead} commit(s) local(is) para enviar`}
+            className="flex h-4 items-center gap-0.5 rounded-full px-1 text-[9px] font-bold"
+            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            <Upload size={9} />{git.ahead}
+          </span>
+        )}
       </button>
       {open && btnRef.current && (
         <BranchPicker
@@ -83,8 +109,29 @@ function BranchPicker({
   onClose: () => void;
 }) {
   const refresh = useGitStore((s) => s.refresh);
+  const pull = useGitStore((s) => s.pull);
+  const git = useGitStore((s) => selectGit(s.byPath, projectPath));
+  const [syncing, setSyncing] = useState<'pull' | 'push' | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  async function doPull() {
+    if (syncing) return;
+    setSyncing('pull');
+    const res = await pull(projectPath);
+    setSyncing(null);
+    if (res.ok) { toast.success('Atualizado', 'git pull concluído'); onClose(); }
+    else toast.error('Falha no pull', res.error);
+  }
+  async function doPush() {
+    if (syncing) return;
+    setSyncing('push');
+    const res = await window.api.git.push(projectPath);
+    await refresh(projectPath);
+    setSyncing(null);
+    if (res.ok) toast.success('Enviado', 'git push concluído');
+    else toast.error('Falha no push', res.error);
+  }
   const [branches, setBranches] = useState<string[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -139,6 +186,32 @@ function BranchPicker({
       className="fixed z-[300] flex flex-col overflow-hidden rounded-lg border border-border-default bg-bg-overlay shadow-lg"
       style={{ left: pos.left, top: pos.top, width: pos.width, maxHeight: 320 }}
     >
+      {git && (git.behind > 0 || git.ahead > 0) && (
+        <div className="flex flex-col gap-1.5 border-b border-border-subtle p-2">
+          {git.behind > 0 && (
+            <button
+              onClick={() => void doPull()}
+              disabled={!!syncing}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] font-semibold transition-opacity disabled:opacity-60"
+              style={{ background: 'color-mix(in srgb, var(--info) 16%, transparent)', color: 'var(--info)' }}
+            >
+              {syncing === 'pull' ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Download size={13} className="shrink-0" />}
+              <span className="flex-1">Atualizar — {git.behind} novo{git.behind > 1 ? 's' : ''} no GitHub</span>
+            </button>
+          )}
+          {git.ahead > 0 && (
+            <button
+              onClick={() => void doPush()}
+              disabled={!!syncing}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] font-semibold transition-opacity disabled:opacity-60"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+            >
+              {syncing === 'push' ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Upload size={13} className="shrink-0" />}
+              <span className="flex-1">Enviar — {git.ahead} commit{git.ahead > 1 ? 's' : ''} local{git.ahead > 1 ? 'is' : ''}</span>
+            </button>
+          )}
+        </div>
+      )}
       <div className="border-b border-border-subtle p-2">
         <input
           ref={inputRef}
