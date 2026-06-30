@@ -65,6 +65,7 @@ export function PaneHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(false);
+  const [projectEditAnchor, setProjectEditAnchor] = useState<HTMLElement | null>(null);
   const [editTitleOpen, setEditTitleOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -191,8 +192,12 @@ export function PaneHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
           ref={nameRef}
-          onDoubleClick={() => setEditTitleOpen(true)}
-          title="Duplo-clique para renomear e mudar a cor deste terminal"
+          onDoubleClick={() => {
+            // Com projeto → editor completo (nome, cor e emoji); sem projeto → nome/cor do pane.
+            if (pane.projectPath) { setProjectEditAnchor(nameRef.current); setEditingProject(true); }
+            else setEditTitleOpen(true);
+          }}
+          title="Duplo-clique para personalizar (nome, cor e emoji)"
           className="cursor-text truncate text-[15.5px] font-bold tracking-[-0.015em] text-text-primary"
         >
           {displayName}
@@ -352,7 +357,7 @@ export function PaneHeader({
 
                 {pane.projectPath && (
                   <span ref={paletteRef} className="flex">
-                    <IconBtn onClick={() => setEditingProject((v) => !v)} title="Personalizar projeto — cor e ícone" active={editingProject} activeColor="var(--accent)">
+                    <IconBtn onClick={() => { if (editingProject) { setEditingProject(false); } else { setProjectEditAnchor(paletteRef.current); setEditingProject(true); } }} title="Personalizar projeto — nome, cor e emoji" active={editingProject} activeColor="var(--accent)">
                       <Palette size={16} />
                     </IconBtn>
                   </span>
@@ -467,6 +472,7 @@ export function PaneHeader({
                       onClick={() => {
                         setMenuOpen(false);
                         setThemeOpen(false);
+                        setProjectEditAnchor(editAnchorRef.current);
                         setEditingProject(true);
                       }}
                     />
@@ -563,12 +569,12 @@ export function PaneHeader({
               />
             </div>
           )}
-          {editingProject && pane.projectPath && (paletteRef.current || editAnchorRef.current || menuRef.current) && (
+          {editingProject && pane.projectPath && (projectEditAnchor || paletteRef.current || editAnchorRef.current || menuRef.current) && (
             <ProjectEditPopover
               projectPath={pane.projectPath}
               projectName={pane.projectName ?? ''}
-              anchor={(paletteRef.current ?? editAnchorRef.current ?? menuRef.current)!}
-              onClose={() => setEditingProject(false)}
+              anchor={(projectEditAnchor ?? paletteRef.current ?? editAnchorRef.current ?? menuRef.current)!}
+              onClose={() => { setEditingProject(false); setProjectEditAnchor(null); }}
             />
           )}
         </div>

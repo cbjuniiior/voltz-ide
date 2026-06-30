@@ -37,6 +37,7 @@ const api: IpcApi = {
     allSessions: (limit, configDirs) => ipcRenderer.invoke('claude:allSessions', limit, configDirs),
     usage: (configDir) => ipcRenderer.invoke('claude:usage', configDir),
     currentModel: (projectPath, configDir) => ipcRenderer.invoke('claude:currentModel', projectPath, configDir),
+    trustProject: (projectPath: string, envConfigDir?: string) => ipcRenderer.invoke('claude:trustProject', projectPath, envConfigDir),
     commitMessage: (opts) => ipcRenderer.invoke('claude:commitMessage', opts),
   },
   accounts: {

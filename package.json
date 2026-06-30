@@ -1,6 +1,6 @@
 {
   "name": "voltz-ide",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Voltz IDE — Multiterminal para Claude Code & Codex (Windows + macOS): splits, abas, monitor por terminal, tags e painel de vídeo.",
   "main": "dist-electron/electron/main.js",
   "author": "Cassio Bona",

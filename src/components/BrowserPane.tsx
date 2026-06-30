@@ -4,7 +4,8 @@ import {
   ExternalLink, Globe, Play, Loader2, Square,
   Zap, Bug, Eraser, Plus, Lock, Search, Smartphone, Monitor,
   ZoomIn, ZoomOut, Camera, SquareTerminal, RotateCcw, ChevronDown,
-  Trash2, AlertTriangle, Bot,
+  Trash2, AlertTriangle, Bot, GripVertical,
+  PanelTop, PanelBottom, PanelLeft, PanelRight,
 } from 'lucide-react';
 import { useDevServersStore, selectDevServer } from '@/stores/devServers';
 import { useSettingsStore } from '@/stores/settings';
@@ -51,6 +52,7 @@ const DEVICES: Device[] = [
 
 interface BrowserTab { id: string; url: string; title: string; favicon: string | null; }
 interface ConsoleMsg { id: number; level: number; text: string; source: string; line: number; }
+type ConsoleDock = 'bottom' | 'top' | 'left' | 'right';
 
 // Rótulo amigável de cada ação que o agente (Claude via MCP) faz no navegador.
 const AGENT_ACTION_LABEL: Record<string, string> = {
@@ -99,7 +101,7 @@ function tabLabel(tab: BrowserTab): string {
 }
 
 export function BrowserPane({
-  paneId, tabId, projectPath, projectName, accentColor, initialUrl, visible, onUrlChange, onClose, dragHandleProps,
+  paneId, tabId, projectPath, accentColor, initialUrl, visible, onUrlChange, onClose, dragHandleProps,
 }: Props) {
   const webviewRef = useRef<WebviewEl | null>(null);
   const readyRef = useRef(false);
@@ -121,6 +123,7 @@ export function BrowserPane({
   const [crashed, setCrashed] = useState(false);
   // Indicador de transparência: última ação do agente (Claude) NESTA aba.
   const [agentAct, setAgentAct] = useState<{ label: string; detail: string | null; ts: number } | null>(null);
+  const [lookKey, setLookKey] = useState(0); // bump a cada screenshot → dispara o flash de "leitura"
 
   // Emulador de aparelho.
   const [deviceId, setDeviceId] = useState('responsive');
@@ -142,6 +145,11 @@ export function BrowserPane({
   // Console embutido (só do site).
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleMsgs, setConsoleMsgs] = useState<ConsoleMsg[]>([]);
+  // Doca do console (lado) + tamanho (px: altura p/ topo/baixo, largura p/ lados) + arrasto.
+  const [consoleDock, setConsoleDock] = useState<ConsoleDock>('bottom');
+  const [consoleSize, setConsoleSize] = useState(240);
+  const [resizing, setResizing] = useState(false);
+  const resizeRef = useRef<{ axis: 'x' | 'y'; start: number; startSize: number; sign: number } | null>(null);
   const errorCount = consoleMsgs.filter((m) => m.level >= 3).length;
 
   const hasUrl = !!active.url;
@@ -290,6 +298,7 @@ export function BrowserPane({
     const off = window.api.browser.onAgentActivity((e) => {
       if (e.webContentsId !== wcIdRef.current) return;
       setAgentAct({ label: AGENT_ACTION_LABEL[e.action] ?? 'agiu na página', detail: e.detail, ts: e.ts });
+      if (e.action === 'screenshot') setLookKey((k) => k + 1); // "olhar" não move nada → dá um flash
     });
     return off;
   }, []);
@@ -298,9 +307,34 @@ export function BrowserPane({
   useEffect(() => () => clearBrowserScope(paneId), [paneId]);
   useEffect(() => {
     if (!agentAct) return;
-    const t = setTimeout(() => setAgentAct(null), 4500);
+    const t = setTimeout(() => setAgentAct(null), 6000);
     return () => clearTimeout(t);
   }, [agentAct]);
+
+  // ===== Console: arrastar a divisória para redimensionar (largura/altura) =====
+  function startResize(e: React.MouseEvent) {
+    const row = consoleDock === 'left' || consoleDock === 'right';
+    resizeRef.current = {
+      axis: row ? 'x' : 'y',
+      start: row ? e.clientX : e.clientY,
+      startSize: consoleSize,
+      sign: consoleDock === 'bottom' || consoleDock === 'right' ? -1 : 1,
+    };
+    setResizing(true);
+    e.preventDefault();
+  }
+  useEffect(() => {
+    if (!resizing) return;
+    function onMove(ev: MouseEvent) {
+      const r = resizeRef.current; if (!r) return;
+      const cur = r.axis === 'x' ? ev.clientX : ev.clientY;
+      setConsoleSize(Math.max(140, Math.min(1000, r.startSize + (cur - r.start) * r.sign)));
+    }
+    function onUp() { setResizing(false); resizeRef.current = null; }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, [resizing]);
 
   function navigate(raw: string) {
     const url = normaliseUrl(raw);
@@ -410,18 +444,20 @@ export function BrowserPane({
   return (
     <div className="flex h-full flex-col bg-bg-base">
       {/* ===== Barra de abas ===== */}
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface pl-2 pr-1.5">
-        {projectName && (
+      <div
+        className="flex h-9 shrink-0 items-center gap-1.5 pl-1.5 pr-1.5"
+        style={{
+          background: `color-mix(in srgb, ${accent} 13%, var(--bg-surface))`,
+          borderBottom: `1px solid color-mix(in srgb, ${accent} 32%, var(--border-subtle))`,
+        }}
+      >
+        {dragHandleProps && (
           <div
-            {...(dragHandleProps ?? {})}
-            title={dragHandleProps ? 'Arraste para trocar a posição deste painel' : undefined}
-            className={`flex min-w-0 shrink-0 items-center gap-1.5 pr-1 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            {...dragHandleProps}
+            title="Arraste para trocar a posição deste painel"
+            className="flex shrink-0 cursor-grab items-center px-0.5 text-text-disabled transition-colors hover:text-text-muted active:cursor-grabbing"
           >
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px]" style={{ background: `color-mix(in srgb, ${accent} 22%, transparent)`, color: accent }}>
-              <Globe size={10} />
-            </span>
-            <span className="max-w-[110px] truncate text-[11px] font-semibold text-text-secondary">{projectName}</span>
-            <span className="h-3.5 w-px bg-border-subtle" />
+            <GripVertical size={13} />
           </div>
         )}
         <div className="flex flex-1 items-center gap-1 overflow-x-auto no-scrollbar">
@@ -440,7 +476,13 @@ export function BrowserPane({
       </div>
 
       {/* ===== Toolbar ===== */}
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-2.5">
+      <div
+        className="flex h-11 shrink-0 items-center gap-2 px-2.5"
+        style={{
+          background: `color-mix(in srgb, ${accent} 7%, var(--bg-surface))`,
+          borderBottom: `1px solid color-mix(in srgb, ${accent} 22%, var(--border-subtle))`,
+        }}
+      >
         <div className="flex items-center">
           <NavBtn disabled={!canBack} onClick={() => webviewRef.current?.goBack()} title="Voltar"><ArrowLeft size={15} /></NavBtn>
           <NavBtn disabled={!canFwd} onClick={() => webviewRef.current?.goForward()} title="Avançar"><ArrowRight size={15} /></NavBtn>
@@ -519,22 +561,51 @@ export function BrowserPane({
       </div>
 
       {/* ===== Conteúdo ===== */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+      <div className={`relative flex min-h-0 flex-1 overflow-hidden ${consoleDock === 'left' || consoleDock === 'right' ? 'flex-row' : 'flex-col'}`}>
+        {/* Console docado no topo/esquerda fica ANTES do conteúdo */}
+        {consoleOpen && (consoleDock === 'top' || consoleDock === 'left') && (
+          <>
+            <ConsolePanel msgs={consoleMsgs} dock={consoleDock} size={consoleSize} onSetDock={setConsoleDock} onClear={() => setConsoleMsgs([])} onClose={() => setConsoleOpen(false)} />
+            <ResizeDivider dock={consoleDock} onStart={startResize} />
+          </>
+        )}
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-white">
           {agentAct && (
+            <>
+              {/* Borda pulsante: o Claude está controlando ESTE navegador agora. */}
+              <div
+                className="pointer-events-none absolute inset-0 z-20"
+                style={{
+                  boxShadow: 'inset 0 0 0 2px color-mix(in srgb, var(--accent) 72%, transparent)',
+                  animation: 'voltz-agent-ring 1.6s ease-in-out infinite',
+                }}
+              />
+              {/* Banner central com a ação atual (e o detalhe: seletor/URL). */}
+              <div
+                className="pointer-events-none absolute left-1/2 top-2.5 z-20 flex max-w-[92%] -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-[11.5px] font-semibold shadow-lg backdrop-blur"
+                style={{
+                  background: 'color-mix(in srgb, var(--accent) 22%, var(--bg-overlay))',
+                  borderColor: 'color-mix(in srgb, var(--accent) 50%, transparent)',
+                  color: 'var(--accent)',
+                }}
+                title={agentAct.detail ?? undefined}
+              >
+                <span className="claude-dot h-2 w-2 shrink-0 rounded-full" style={{ background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
+                <Bot size={13} className="shrink-0" />
+                <span className="truncate">
+                  Claude {agentAct.label}
+                  {agentAct.detail ? <span className="font-normal opacity-80"> · {agentAct.detail.slice(0, 48)}</span> : null}
+                </span>
+              </div>
+            </>
+          )}
+          {/* Flash de "leitura": pisca de leve quando o Claude tira um screenshot. */}
+          {lookKey > 0 && (
             <div
-              className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-semibold shadow-lg backdrop-blur"
-              style={{
-                background: 'color-mix(in srgb, var(--accent) 16%, var(--bg-overlay))',
-                borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
-                color: 'var(--accent)',
-              }}
-              title={agentAct.detail ?? undefined}
-            >
-              <span className="claude-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--accent)', boxShadow: '0 0 5px var(--accent)' }} />
-              <Bot size={12} />
-              <span>Claude {agentAct.label}</span>
-            </div>
+              key={lookKey}
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{ background: 'var(--accent)', animation: 'voltz-look-flash 0.7s ease-out forwards' }}
+            />
           )}
           {!hasUrl ? (
             <BrowserEmptyState hasProject={hasProject} devRunning={devRunning} devBusy={devBusy} devPhase={devPhase} devUrl={devUrl} onDev={onDevButton} onOpen={(u) => navigate(u)} />
@@ -585,11 +656,18 @@ export function BrowserPane({
           )}
         </div>
 
-        {/* Console embutido */}
-        {consoleOpen && (
-          <ConsolePanel msgs={consoleMsgs} onClear={() => setConsoleMsgs([])} onClose={() => setConsoleOpen(false)} />
+        {/* Console docado embaixo/direita fica DEPOIS do conteúdo */}
+        {consoleOpen && (consoleDock === 'bottom' || consoleDock === 'right') && (
+          <>
+            <ResizeDivider dock={consoleDock} onStart={startResize} />
+            <ConsolePanel msgs={consoleMsgs} dock={consoleDock} size={consoleSize} onSetDock={setConsoleDock} onClear={() => setConsoleMsgs([])} onClose={() => setConsoleOpen(false)} />
+          </>
         )}
       </div>
+      {/* Overlay durante o arrasto: captura o mouse por cima do <webview>. */}
+      {resizing && (
+        <div className="fixed inset-0 z-[300]" style={{ cursor: consoleDock === 'left' || consoleDock === 'right' ? 'col-resize' : 'row-resize' }} />
+      )}
     </div>
   );
 }
@@ -603,40 +681,57 @@ const LEVEL_META: Record<number, { color: string; bg: string; label: string }> =
   2: { color: 'var(--warning)', bg: 'color-mix(in srgb, var(--warning) 10%, transparent)', label: 'aviso' },
 };
 
-function ConsolePanel({ msgs, onClear, onClose }: { msgs: ConsoleMsg[]; onClear: () => void; onClose: () => void }) {
+function ConsolePanel({ msgs, onClear, onClose, dock, size, onSetDock }: {
+  msgs: ConsoleMsg[]; onClear: () => void; onClose: () => void;
+  dock: ConsoleDock; size: number; onSetDock: (d: ConsoleDock) => void;
+}) {
   const [filter, setFilter] = useState<'all' | 'errors'>('all');
   const endRef = useRef<HTMLDivElement | null>(null);
   const shown = filter === 'errors' ? msgs.filter((m) => m.level >= 2) : msgs;
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
 
+  const row = dock === 'left' || dock === 'right';
+  const borderCls = dock === 'bottom' ? 'border-t' : dock === 'top' ? 'border-b' : dock === 'left' ? 'border-r' : 'border-l';
+
   return (
-    <div className="flex h-[38%] min-h-[120px] shrink-0 flex-col border-t border-border-default bg-bg-base">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle px-2.5">
-        <SquareTerminal size={13} className="text-accent" />
+    <div
+      className={`flex shrink-0 flex-col border-border-default bg-bg-base ${borderCls}`}
+      style={row ? { width: size, minWidth: 180 } : { height: size, minHeight: 110 }}
+    >
+      <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-subtle px-2 py-1">
+        <SquareTerminal size={13} className="shrink-0 text-accent" />
         <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Console</span>
         <span className="rounded-full bg-bg-active px-1.5 py-px text-[9px] font-bold tabular-nums text-text-tertiary">{msgs.length}</span>
-        <div className="ml-2 flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5">
           <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>Tudo</FilterChip>
-          <FilterChip active={filter === 'errors'} onClick={() => setFilter('errors')}>Erros/avisos</FilterChip>
+          <FilterChip active={filter === 'errors'} onClick={() => setFilter('errors')}>Erros</FilterChip>
         </div>
         <div className="ml-auto flex items-center gap-0.5">
+          <div className="mr-0.5 flex items-center gap-0.5 rounded-md bg-bg-active/50 p-0.5" title="Posição do console">
+            <DockBtn icon={<PanelBottom size={12} />} active={dock === 'bottom'} onClick={() => onSetDock('bottom')} title="embaixo" />
+            <DockBtn icon={<PanelTop size={12} />} active={dock === 'top'} onClick={() => onSetDock('top')} title="no topo" />
+            <DockBtn icon={<PanelLeft size={12} />} active={dock === 'left'} onClick={() => onSetDock('left')} title="à esquerda" />
+            <DockBtn icon={<PanelRight size={12} />} active={dock === 'right'} onClick={() => onSetDock('right')} title="à direita" />
+          </div>
           <button onClick={onClear} title="Limpar" className="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"><Trash2 size={13} /></button>
           <button onClick={onClose} title="Fechar console" className="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"><XIcon size={13} /></button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto py-1 font-mono text-[11px] leading-relaxed">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 font-mono text-[11px] leading-relaxed">
         {shown.length === 0 && (
           <div className="px-3 py-6 text-center text-text-muted">Sem mensagens. Os <code>console.log</code> e erros do site aparecem aqui.</div>
         )}
         {shown.map((m) => {
           const meta = LEVEL_META[m.level];
           return (
-            <div key={m.id} className="flex items-start gap-2 px-3 py-0.5" style={meta ? { background: meta.bg } : undefined}>
-              {m.level >= 3 ? <XIcon size={12} className="mt-0.5 shrink-0 text-danger" />
-                : m.level === 2 ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning" />
-                : <span className="mt-0.5 shrink-0 text-text-disabled">›</span>}
-              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words" style={{ color: meta?.color ?? 'var(--text-secondary)' }}>{m.text}</span>
-              {m.source && <span className="shrink-0 text-text-disabled">{m.source.split('/').pop()}:{m.line}</span>}
+            <div key={m.id} className="px-3 py-0.5" style={meta ? { background: meta.bg } : undefined}>
+              <div className="flex items-start gap-2">
+                {m.level >= 3 ? <XIcon size={12} className="mt-0.5 shrink-0 text-danger" />
+                  : m.level === 2 ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning" />
+                  : <span className="mt-0.5 shrink-0 text-text-disabled">›</span>}
+                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words" style={{ color: meta?.color ?? 'var(--text-secondary)' }}>{m.text}</span>
+              </div>
+              {m.source && <div className="truncate pl-5 text-[9px] text-text-disabled">{m.source.split('/').pop()}:{m.line}</div>}
             </div>
           );
         })}
@@ -651,6 +746,35 @@ function FilterChip({ children, active, onClick }: { children: React.ReactNode; 
     <button onClick={onClick} className="rounded-md px-2 py-0.5 text-[10px] font-semibold transition-colors" style={{ background: active ? 'var(--accent-soft)' : 'transparent', color: active ? 'var(--accent)' : 'var(--text-muted)' }}>
       {children}
     </button>
+  );
+}
+
+/** Botão do seletor de posição (doca) do console. */
+function DockBtn({ icon, active, onClick, title }: { icon: React.ReactNode; active: boolean; onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={`Console ${title}`}
+      className="flex h-5 w-5 items-center justify-center rounded transition-colors"
+      style={active ? { background: 'var(--accent)', color: 'var(--accent-fg)' } : { color: 'var(--text-muted)' }}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** Divisória arrastável entre o conteúdo e o console (muda largura/altura). */
+function ResizeDivider({ dock, onStart }: { dock: ConsoleDock; onStart: (e: React.MouseEvent) => void }) {
+  const row = dock === 'left' || dock === 'right';
+  return (
+    <div
+      onMouseDown={onStart}
+      title="Arraste para redimensionar"
+      className={`shrink-0 transition-colors ${row ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`}
+      style={{ background: 'var(--border-default)' }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--border-default)'; }}
+    />
   );
 }
 

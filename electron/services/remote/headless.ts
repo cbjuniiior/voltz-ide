@@ -10,10 +10,15 @@ export interface HeadlessHandlers {
   onText: (text: string) => void;
   /** Resumo de uma chamada de ferramenta (Edit/Bash/Read…). */
   onTool: (summary: string) => void;
-  /** Turno concluído. */
-  onDone: (result: string | null) => void;
+  /** Turno concluído. `denials` = ferramentas que precisaram de permissão e foram bloqueadas. */
+  onDone: (result: string | null, denials: string[]) => void;
   /** Erro (executável não achado, processo falhou…). */
   onError: (msg: string) => void;
+}
+
+export interface AskOptions {
+  /** Roda com --dangerously-skip-permissions (após o usuário aprovar no Telegram). */
+  bypass?: boolean;
 }
 
 function summarizeTool(name: string, input: Record<string, unknown> = {}): string {
@@ -46,7 +51,7 @@ export class HeadlessManager {
     this.running.clear();
   }
 
-  async ask(project: string, prompt: string, h: HeadlessHandlers): Promise<void> {
+  async ask(project: string, prompt: string, h: HeadlessHandlers, opts: AskOptions = {}): Promise<void> {
     if (this.running.has(project)) { h.onError('Já há um pedido em andamento nesse projeto. Aguarde ou use /stop.'); return; }
     if (this.claudePath === undefined) this.claudePath = (await detectClaude()).path;
     if (!this.claudePath) { h.onError('Não encontrei o executável do Claude. Confira o caminho em Configurações → Claude/IA.'); return; }
@@ -55,7 +60,9 @@ export class HeadlessManager {
     const accountDir = await this.resolveAccountDir(project);
     if (accountDir) env.CLAUDE_CONFIG_DIR = accountDir; // mesma conta/auth que o usuário usa no projeto
 
-    const args = ['--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits'];
+    // bypass = o usuário aprovou no Telegram → libera tudo nesta continuação.
+    const permFlag = opts.bypass ? ['--dangerously-skip-permissions'] : ['--permission-mode', 'acceptEdits'];
+    const args = ['--output-format', 'stream-json', '--verbose', ...permFlag];
     const sid = this.sessionByProject.get(project);
     if (sid) args.push('--resume', sid);
 
@@ -65,6 +72,7 @@ export class HeadlessManager {
     let buf = '';
     let resultText: string | null = null;
     let sawAnything = false;
+    const denials: string[] = [];
 
     child.stdout?.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8');
@@ -73,7 +81,11 @@ export class HeadlessManager {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (!line) continue;
-        let ev: { type?: string; subtype?: string; session_id?: string; result?: unknown; message?: { content?: Array<{ type?: string; text?: string; name?: string; input?: Record<string, unknown> }> } };
+        let ev: {
+          type?: string; subtype?: string; session_id?: string; result?: unknown;
+          permission_denials?: Array<{ tool_name?: string; tool_input?: Record<string, unknown> }>;
+          message?: { content?: Array<{ type?: string; text?: string; name?: string; input?: Record<string, unknown> }> };
+        };
         try { ev = JSON.parse(line); } catch { continue; }
         if (ev.session_id) this.sessionByProject.set(project, ev.session_id);
         if (ev.type === 'assistant' && Array.isArray(ev.message?.content)) {
@@ -83,6 +95,9 @@ export class HeadlessManager {
           }
         } else if (ev.type === 'result') {
           resultText = typeof ev.result === 'string' ? ev.result : null;
+          for (const d of ev.permission_denials ?? []) {
+            if (d.tool_name) denials.push(summarizeTool(d.tool_name, d.tool_input));
+          }
         }
       }
     });
@@ -91,7 +106,7 @@ export class HeadlessManager {
     child.on('close', () => {
       this.running.delete(project);
       if (!sawAnything && resultText) h.onText(resultText);
-      h.onDone(resultText);
+      h.onDone(resultText, denials);
     });
   }
 

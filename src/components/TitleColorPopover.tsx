@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RotateCcw as ResetIcon } from 'lucide-react';
 import { PROJECT_PALETTE } from '@/lib/projectColors';
 
@@ -23,9 +23,10 @@ export function TitleColorPopover({
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(initialTitle);
   const [color, setColor] = useState(initialColor);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  useEffect(() => {
+  // useLayoutEffect: posiciona ANTES da pintura (evita o "pulo" do canto 0,0).
+  useLayoutEffect(() => {
     const r = anchor.getBoundingClientRect();
     const popW = 240;
     const left = Math.min(r.left, window.innerWidth - popW - 8);
@@ -55,7 +56,7 @@ export function TitleColorPopover({
     <div
       ref={ref}
       className="fixed z-[200] flex flex-col gap-3 rounded-xl border border-border-default bg-bg-overlay p-3.5 shadow-lg"
-      style={{ top: pos.top, left: pos.left, width: 240 }}
+      style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, width: 240, visibility: pos ? 'visible' : 'hidden' }}
     >
       <div>
         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-text-muted">

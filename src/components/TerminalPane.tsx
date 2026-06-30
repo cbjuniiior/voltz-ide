@@ -762,6 +762,12 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
     setRecording(true);
   }
 
+  /** Confia o projeto no .claude.json da conta (evita "workspace not trusted"). */
+  async function ensureTrusted(envConfigDir: string) {
+    if (!pane.projectPath) return;
+    try { await window.api.claude.trustProject(pane.projectPath, envConfigDir || undefined); } catch { /* ignore */ }
+  }
+
   async function startClaude() {
     const term = termRef.current;
     const ptyId = ptyIdRef.current;
@@ -789,6 +795,7 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       void useSettingsStore.getState().update({ claudePath: result.path });
     }
 
+    await ensureTrusted(envConfigDirRef.current);
     const isPs = settings.defaultShell === 'pwsh';
     const cmd = isPs ? `& "${claudePath}"` : `"${claudePath}"`;
     window.api.pty.write(ptyId, `${cmd}\r`);
@@ -811,6 +818,7 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       void useSettingsStore.getState().update({ claudePath: result.path });
     }
 
+    await ensureTrusted(envConfigDirRef.current);
     const isPs = settings.defaultShell === 'pwsh';
     // claude --continue resumes the last session in cwd
     const cmd = isPs ? `& "${claudePath}" --continue` : `"${claudePath}" --continue`;
@@ -836,13 +844,16 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
 
     // A sessão pode pertencer a OUTRA conta (CLAUDE_CONFIG_DIR diferente). Aponta o
     // terminal pra conta dona ANTES do --resume, senão dá "No conversation found".
+    let trustDir = envConfigDirRef.current; // por padrão, a conta atual do terminal
     if (sessionConfigDir) {
       const norm = (p: string) => p.replace(/[\\/]+$/, '').toLowerCase();
       const owner = useAccountsStore.getState().accounts.find((a) => norm(a.dir) === norm(sessionConfigDir));
       if (owner) {
+        trustDir = owner.primary ? '' : owner.dir;
         if (owner.id !== pane.claudeAccountId) setClaudeAccount(owner.id);
       } else {
         // Conta fora do gerenciador: aponta o env direto pra ela.
+        trustDir = sessionConfigDir;
         const shell = settings.defaultShell;
         const envCmd = shell === 'cmd'
           ? `set "CLAUDE_CONFIG_DIR=${sessionConfigDir}"`
@@ -853,6 +864,7 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       }
     }
 
+    await ensureTrusted(trustDir);
     const isPs = settings.defaultShell === 'pwsh';
     const cmd = isPs ? `& "${claudePath}" --resume ${sessionId}` : `"${claudePath}" --resume ${sessionId}`;
     window.api.pty.write(ptyId, `${cmd}\r`);
@@ -882,6 +894,8 @@ export function TerminalPane({ tabId, pane, canvasMode }: Props) {
       }
       window.api.pty.write(ptyId, `${cmd}\r`);
     }
+    // Confia o projeto na conta nova (pra aplicar as permissões sem o aviso de trust).
+    if (pane.projectPath) void window.api.claude.trustProject(pane.projectPath, envDir || undefined);
     // Reavalia o modelo pela conta nova.
     setTimeout(() => refreshModelFromTranscript(), 200);
   }

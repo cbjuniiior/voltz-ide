@@ -1,9 +1,14 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { TelegramApi, type TgUpdate } from './telegramApi';
 import { getRemoteConfig, setRemoteConfig } from './config';
 import { isOwner, generatePairingCode } from './pairing';
 import { sliceForTelegram } from './messages';
 import { HeadlessManager } from './headless';
 import { TunnelManager } from './tunnel';
+import { transcribeAudio } from '../../ipc/transcribe';
+import { appStore } from '../appStore';
 import { getDevServerState, startDevServer, getDevScripts, onDevServerUpdate } from '../devServerManager';
 import type { RemoteStatusInfo, RemoteActivity } from '../../../shared/types';
 
@@ -24,6 +29,8 @@ export class TelegramBridge {
   private activeProject: string | null = null;   // projeto ativo da conversa (1 chat)
   private headless = new HeadlessManager();
   private tunnel = new TunnelManager();
+  private queues = new Map<string, string[]>();   // fila de pedidos por projeto
+  private pendingApproval: { project: string; denials: string[] } | null = null;
 
   constructor(private onStatusChange: () => void, private onActivity: (e: RemoteActivity) => void) {}
 
@@ -86,8 +93,10 @@ export class TelegramBridge {
   private async handleUpdate(u: TgUpdate) {
     const cfg = getRemoteConfig();
     if (u.callback_query) return this.handleCallback(u, cfg.ownerChatId);
-    const msg = u.message; if (!msg?.text) return;
-    const chatId = msg.chat.id; const text = msg.text.trim();
+    const msg = u.message; if (!msg) return;
+    const chatId = msg.chat.id;
+    const text = (msg.text ?? '').trim();
+    const hasPhoto = !!(msg.photo && msg.photo.length);
 
     // pareamento (antes do owner-check, pois ainda não há dono)
     if (text.startsWith('/pair')) {
@@ -103,27 +112,121 @@ export class TelegramBridge {
     if (!isOwner(chatId, getRemoteConfig().ownerChatId)) return; // ignora estranhos
 
     if (text === '/start' || text === '/help') return void this.send(chatId,
-      'Voltz IDE remoto.\n/projects — escolher projeto\n/preview — link público do dev server\n/status — situação\n/stop — cancelar pedido');
+      'Voltz IDE remoto.\n/projects — escolher projeto\n/preview — link público do dev server\n/status — situação\n/stop — cancelar pedido\n\nDica: pode mandar foto (eu leio a imagem) e enfileirar pedidos enquanto eu trabalho.');
     if (text === '/projects' || text === '/p') return this.sendProjectList(chatId);
     if (text === '/status') return this.sendStatus(chatId);
     if (text === '/stop') {
-      if (this.activeProject && this.headless.stop(this.activeProject)) return void this.send(chatId, '🛑 Pedido cancelado.');
+      this.queues.delete(this.activeProject ?? '');
+      if (this.activeProject && this.headless.stop(this.activeProject)) return void this.send(chatId, '🛑 Pedido cancelado (e fila limpa).');
       return void this.send(chatId, 'Nada rodando agora.');
     }
     if (text === '/preview' || text.startsWith('/preview ')) { void this.handlePreview(chatId, text); return; }
 
-    // texto solto = pedido pro Claude (headless) no projeto ativo
+    // foto / voz / texto = pedido pro Claude no projeto ativo
+    const voice = msg.voice ?? msg.audio;
+    if (!hasPhoto && !text && !voice) return;
     if (!this.activeProject) return void this.send(chatId, 'Escolha um projeto primeiro: /projects');
     const project = this.activeProject;
-    if (this.headless.isRunning(project)) return void this.send(chatId, 'Ainda estou processando o pedido anterior nesse projeto. Use /stop pra cancelar.');
-    this.logActivity('prompt', project, text);
-    void this.send(chatId, '⏳ Pensando…');
-    void this.headless.ask(project, text, {
+
+    if (voice) { void this.handleVoicePrompt(chatId, project, voice); return; }
+    if (hasPhoto) { void this.handlePhotoPrompt(chatId, project, msg); return; }
+    this.submitPrompt(chatId, project, text);
+  }
+
+  /** Enfileira (se já estiver rodando) ou roda o pedido agora. */
+  private submitPrompt(chatId: number, project: string, prompt: string) {
+    if (this.headless.isRunning(project) || this.pendingApproval?.project === project) {
+      const q = this.queues.get(project) ?? []; q.push(prompt); this.queues.set(project, q);
+      void this.send(chatId, `📥 Na fila (${q.length}). Rodo assim que terminar o atual.`);
+      return;
+    }
+    this.runPrompt(chatId, project, prompt);
+  }
+
+  /** Roda um pedido no headless e trata resposta, fila e aprovação. */
+  private runPrompt(chatId: number, project: string, prompt: string, bypass = false) {
+    this.logActivity('prompt', project, prompt);
+    void this.send(chatId, bypass ? '🔓 Aprovado — continuando…' : '⏳ Pensando…');
+    void this.headless.ask(project, prompt, {
       onText: (t) => { this.logActivity('response', project, t.slice(0, 120)); for (const c of sliceForTelegram(t)) void this.send(chatId, c); },
       onTool: (s) => { this.logActivity('info', project, s); void this.send(chatId, '▸ ' + s); },
-      onDone: () => void this.send(chatId, '✅ Concluído.'),
-      onError: (m) => void this.send(chatId, '⚠️ ' + m),
+      onError: (m) => { void this.send(chatId, '⚠️ ' + m); this.drainQueue(chatId, project); },
+      onDone: (_res, denials) => {
+        if (denials.length && !bypass) {
+          this.pendingApproval = { project, denials };
+          const list = denials.slice(0, 8).map((d) => '• ' + d).join('\n');
+          void this.send(chatId, `🔐 O Claude precisou de permissão para:\n${list}\n\nAprovar e executar?`, [[
+            { text: '✅ Aprovar', callback_data: 'appr' },
+            { text: '❌ Não', callback_data: 'deny' },
+          ]]);
+          return; // espera a decisão antes de seguir a fila
+        }
+        void this.send(chatId, '✅ Concluído.');
+        this.drainQueue(chatId, project);
+      },
+    }, { bypass });
+  }
+
+  /** Roda o próximo pedido da fila do projeto, se houver. */
+  private drainQueue(chatId: number, project: string) {
+    const q = this.queues.get(project);
+    if (!q || !q.length) return;
+    const next = q.shift()!;
+    void this.send(chatId, `▶️ Próximo da fila (${q.length} restante${q.length === 1 ? '' : 's'})…`);
+    this.runPrompt(chatId, project, next);
+  }
+
+  /** Baixa a foto do Telegram e manda pro Claude ler (via ferramenta Read). */
+  private async handlePhotoPrompt(chatId: number, project: string, msg: NonNullable<TgUpdate['message']>) {
+    const photos = msg.photo!;
+    const largest = photos[photos.length - 1]; // maior resolução
+    void this.send(chatId, '🖼️ Baixando a imagem…');
+    let imgPath: string;
+    try {
+      const f = await this.api!.getFile(largest.file_id);
+      if (!f.file_path) throw new Error('sem file_path');
+      const dir = path.join(os.tmpdir(), 'voltz-remote');
+      await fs.mkdir(dir, { recursive: true });
+      imgPath = path.join(dir, `tg_${Date.now()}_${path.basename(f.file_path)}`);
+      await this.api!.downloadFile(f.file_path, imgPath);
+    } catch (e) {
+      return void this.send(chatId, '⚠️ Não consegui baixar a imagem: ' + (e as Error).message);
+    }
+    const caption = (msg.caption ?? '').trim();
+    const prompt = `${caption || 'Veja a imagem em anexo e me diga o que é / o que devo fazer.'}\n\n[Imagem anexada salva em: ${imgPath} — use a ferramenta Read para visualizá-la.]`;
+    this.submitPrompt(chatId, project, prompt);
+  }
+
+  /** Transcreve uma mensagem de voz (Whisper) e roda o texto como pedido. */
+  private async handleVoicePrompt(chatId: number, project: string, voice: { file_id: string; mime_type?: string }) {
+    const settings = (appStore.get('settings') as { whisperApiKey?: string; whisperApiBase?: string; whisperModel?: string } | undefined) ?? {};
+    if (!settings.whisperApiKey) {
+      return void this.send(chatId, '⚠️ Pra eu transcrever áudio, configure a chave do Whisper no app (a mesma do microfone do terminal, em Configurações).');
+    }
+    void this.send(chatId, '🎤 Transcrevendo o áudio…');
+    let buf: Buffer;
+    const mime = voice.mime_type || 'audio/ogg';
+    try {
+      const f = await this.api!.getFile(voice.file_id);
+      if (!f.file_path) throw new Error('sem file_path');
+      const dir = path.join(os.tmpdir(), 'voltz-remote');
+      await fs.mkdir(dir, { recursive: true });
+      const p = path.join(dir, `tg_${Date.now()}_${path.basename(f.file_path)}`);
+      await this.api!.downloadFile(f.file_path, p);
+      buf = await fs.readFile(p);
+    } catch (e) {
+      return void this.send(chatId, '⚠️ Não consegui baixar o áudio: ' + (e as Error).message);
+    }
+    const r = await transcribeAudio(buf, mime, {
+      apiKey: settings.whisperApiKey,
+      apiBase: settings.whisperApiBase || 'https://api.groq.com/openai/v1',
+      model: settings.whisperModel || 'whisper-large-v3-turbo',
+      language: 'pt',
     });
+    if (!r.ok) return void this.send(chatId, '⚠️ Falha ao transcrever: ' + r.error);
+    if (!r.text.trim()) return void this.send(chatId, '🤔 Não captei nada no áudio. Tenta de novo?');
+    void this.send(chatId, `🗣️ Entendi: "${r.text}"`);
+    this.submitPrompt(chatId, project, r.text);
   }
 
   private async handleCallback(u: TgUpdate, ownerChatId: string | null) {
@@ -133,7 +236,20 @@ export class TelegramBridge {
     if (action === 'pick') {
       this.activeProject = project;
       await this.api?.answerCallbackQuery(cq.id, `Ativo: ${baseName(project)}`);
-      void this.send(chatId, `Projeto ativo: ${baseName(project)}. Mande seu pedido.`);
+      return void this.send(chatId, `Projeto ativo: ${baseName(project)}. Mande seu pedido.`);
+    }
+    if (action === 'appr') {
+      const pa = this.pendingApproval; this.pendingApproval = null;
+      await this.api?.answerCallbackQuery(cq.id, 'Aprovado');
+      if (pa) this.runPrompt(chatId, pa.project, 'Continue de onde parou e execute as ações que faltaram — permissão concedida.', true);
+      return;
+    }
+    if (action === 'deny') {
+      const pa = this.pendingApproval; this.pendingApproval = null;
+      await this.api?.answerCallbackQuery(cq.id, 'Negado');
+      void this.send(chatId, '❌ Ok, não executei. Pode me pedir outra coisa.');
+      if (pa) this.drainQueue(chatId, pa.project);
+      return;
     }
   }
 

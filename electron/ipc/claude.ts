@@ -3,6 +3,7 @@ import { detectClaude } from '../services/claudeDetect';
 import { listClaudeSessions, listAllClaudeSessions, getClaudeUsage, getCurrentModel } from '../services/claudeSessions';
 import { defaultClaudeDir, createAccountDir, removeAccountDir, getAccountIdentity } from '../services/claudeAccounts';
 import { generateCommitMessage } from '../services/claudeCommit';
+import { ensureProjectTrusted } from '../services/claudeTrust';
 import { getMcpServerInfo } from '../services/browserMcpServer';
 import { registerVoltzMcpForDir } from '../services/registerVoltzMcp';
 
@@ -14,6 +15,8 @@ export function registerClaudeIpc() {
   ipcMain.handle('claude:allSessions', async (_evt, limit?: number, configDirs?: string[]) => listAllClaudeSessions(limit, configDirs));
   ipcMain.handle('claude:usage', async (_evt, configDir?: string) => getClaudeUsage(configDir));
   ipcMain.handle('claude:currentModel', async (_evt, projectPath: string, configDir?: string) => getCurrentModel(projectPath, configDir));
+  // Confia o projeto no .claude.json da conta (evita o aviso "workspace not trusted").
+  ipcMain.handle('claude:trustProject', async (_evt, projectPath: string, envConfigDir?: string) => ensureProjectTrusted(projectPath, envConfigDir));
 
   // Gestão de contas (multi-conta Claude via CLAUDE_CONFIG_DIR).
   ipcMain.handle('accounts:defaultDir', async () => defaultClaudeDir());

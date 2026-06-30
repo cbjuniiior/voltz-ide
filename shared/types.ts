@@ -276,6 +276,8 @@ export interface IpcApi {
       error?: string;
     }>;
     currentModel: (projectPath: string, configDir?: string) => Promise<string | null>;
+    /** Marca o projeto como confiável no .claude.json da conta (envConfigDir vazio = principal). */
+    trustProject: (projectPath: string, envConfigDir?: string) => Promise<void>;
     /** Gera uma mensagem de commit a partir do diff (roda `claude -p`). */
     commitMessage: (opts: { diff: string; cwd: string; configDir?: string }) =>
       Promise<{ ok: true; message: string } | { ok: false; error: string }>;

@@ -217,6 +217,11 @@ h1, h2, h3, .tracking-tight-apple { letter-spacing: -0.018em; }
 @keyframes pulse-dot { 0%, 100% { opacity: 0.85; } 50% { opacity: 0.35; } }
 .claude-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
 
+/* Flash rápido sobre o navegador quando o Claude "olha" (screenshot). */
+@keyframes voltz-look-flash { 0% { opacity: 0.22; } 100% { opacity: 0; } }
+/* Borda pulsante enquanto o Claude está agindo no navegador. */
+@keyframes voltz-agent-ring { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.45; } }
+
 @keyframes cmd-enter {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

@@ -1,11 +1,21 @@
 import { net } from 'electron';
+import fs from 'node:fs';
 import { mdToTelegramHtml } from './htmlFormat';
 
 interface InlineButton { text: string; callback_data: string }
 
+export interface TgPhotoSize { file_id: string; file_size?: number; width?: number; height?: number }
+export interface TgFile { file_id: string; mime_type?: string; duration?: number; file_size?: number }
+
 export interface TgUpdate {
   update_id: number;
-  message?: { chat: { id: number }; text?: string };
+  message?: {
+    chat: { id: number };
+    text?: string; caption?: string;
+    photo?: TgPhotoSize[];
+    voice?: TgFile;   // nota de voz (microfone)
+    audio?: TgFile;   // arquivo de áudio enviado
+  };
   callback_query?: { id: string; data?: string; message?: { chat: { id: number }; message_id: number } };
 }
 
@@ -70,5 +80,26 @@ export class TelegramApi {
 
   answerCallbackQuery(id: string, text?: string): Promise<unknown> {
     return this.call('answerCallbackQuery', { callback_query_id: id, text });
+  }
+
+  getFile(fileId: string): Promise<{ file_path?: string }> {
+    return this.call('getFile', { file_id: fileId });
+  }
+
+  /** Baixa um arquivo do Telegram (foto/anexo) para `dest`. */
+  downloadFile(filePath: string, dest: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const req = net.request(`https://api.telegram.org/file/bot${this.token}/${filePath}`);
+      req.on('response', (res) => {
+        if ((res.statusCode ?? 0) >= 400) { reject(new Error('download falhou: HTTP ' + res.statusCode)); return; }
+        const out = fs.createWriteStream(dest);
+        (res as unknown as NodeJS.ReadableStream).pipe(out);
+        out.on('finish', () => out.close(() => resolve()));
+        out.on('error', reject);
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.end();
+    });
   }
 }

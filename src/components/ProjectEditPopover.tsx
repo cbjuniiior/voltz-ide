@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Star, X, RotateCcw, Plus, Check } from 'lucide-react';
 import { useProjectCustomStore, selectCustom } from '@/stores/projectCustom';
 import { PROJECT_PALETTE } from '@/lib/projectColors';
 
-const EMOJI_SUGGESTIONS = [
-  '🚀','⚡','🔥','💎','🌊','🎯','🛠️','🤖',
-  '📦','🌿','✨','🎨','🔐','📊','🌐','💡',
-  '🏠','🛒','📱','🎮','🧪','🔬','💼','🌙',
+const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: 'Dev & Tech', emojis: ['🚀','⚡','🔥','💎','🛠️','🤖','📦','🌐','🔐','📊','💡','🧩','⚙️','🖥️','💻','📱','🔌','🧰','🔧','🧱','🗄️','🛰️','📡','🔋','🧠','🐳','🧪','⌨️'] },
+  { label: 'Design & Arte', emojis: ['🎨','✨','🌈','🖌️','🖼️','📐','🎭','🪄','🌟','💫','🔮','🧿','🎬','🎥','📷','🪅','🎼','🎸'] },
+  { label: 'Natureza', emojis: ['🌊','🌿','🍃','🌱','🌳','🌵','🌸','🌻','🌙','⭐','☀️','❄️','🍀','🦋','🐙','🦊','🐢','🐝','🦄','🐬','🐼','🦉','🌴','🔥'] },
+  { label: 'Objetos', emojis: ['🏠','🛒','💼','📁','📂','📌','📎','✏️','📝','🔖','🏷️','🔑','🗝️','🎁','🔭','🔬','⚗️','🧬','📚','🗂️','💾','🧾','🔔','💰'] },
+  { label: 'Símbolos', emojis: ['✅','⭐','🔴','🟢','🟡','🔵','🟣','⚪','🟠','❤️','🧡','💛','💚','💙','💜','🖤','🤍','♻️','⚠️','🚦','♾️','✔️'] },
+  { label: 'Diversão', emojis: ['😀','😎','🤓','🥳','👀','🙌','👍','💪','🎯','🏆','🥇','🎉','🧨','👾','🕹️','🎮','🎲','🪙','🦾','🫡'] },
 ];
 
 interface Props {
@@ -28,9 +31,10 @@ export function ProjectEditPopover({ projectPath, projectName, anchor, onClose }
 
   const ref = useRef<HTMLDivElement>(null);
 
-  // Position below/beside anchor
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  useEffect(() => {
+  // Position below/beside anchor — useLayoutEffect calcula ANTES da pintura,
+  // evitando o "pulo" do canto (0,0) para o lugar certo.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
     const r = anchor.getBoundingClientRect();
     const winW = window.innerWidth;
     const popW = 260;
@@ -77,7 +81,7 @@ export function ProjectEditPopover({ projectPath, projectName, anchor, onClose }
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       className="fixed z-[200] flex flex-col gap-3 rounded-xl border border-border-default bg-bg-overlay p-4 shadow-lg"
-      style={{ top: pos.top, left: pos.left, width: 260 }}
+      style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, width: 260, visibility: pos ? 'visible' : 'hidden' }}
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-text-secondary">
@@ -110,17 +114,24 @@ export function ProjectEditPopover({ projectPath, projectName, anchor, onClose }
             </button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1">
-          {EMOJI_SUGGESTIONS.map((e) => (
-            <button
-              key={e}
-              onClick={() => pickEmoji(e)}
-              className="flex h-6 w-6 items-center justify-center rounded text-base transition-transform hover:scale-125"
-              style={{ background: emoji === e ? 'var(--accent-strong)' : undefined }}
-              title={e}
-            >
-              {e}
-            </button>
+        <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-base/40 p-1.5">
+          {EMOJI_GROUPS.map((g) => (
+            <div key={g.label}>
+              <div className="px-0.5 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-text-muted">{g.label}</div>
+              <div className="flex flex-wrap gap-0.5">
+                {g.emojis.map((e) => (
+                  <button
+                    key={e}
+                    onClick={() => pickEmoji(e)}
+                    className="flex h-6 w-6 items-center justify-center rounded text-base transition-transform hover:scale-125"
+                    style={{ background: emoji === e ? 'var(--accent-strong)' : undefined }}
+                    title={e}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
