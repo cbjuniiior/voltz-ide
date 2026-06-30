@@ -30,6 +30,7 @@ interface WebviewEl extends HTMLElement {
   getUserAgent(): string;
   setZoomLevel(level: number): void;
   capturePage(): Promise<{ toDataURL(): string }>;
+  getWebContentsId(): number;
 }
 
 const UA_IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
@@ -93,6 +94,7 @@ export function BrowserPane({
   const addressRef = useRef<HTMLInputElement | null>(null);
   const defaultUaRef = useRef<string>('');
   const consoleIdRef = useRef(0);
+  const wcIdRef = useRef<number | null>(null); // webContentsId do webview ativo (rotear popups)
 
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [
     { id: newId('tab'), url: initialUrl ?? '', title: '', favicon: null },
@@ -192,6 +194,7 @@ export function BrowserPane({
     const onReady = () => {
       readyRef.current = true;
       try {
+        wcIdRef.current = wv.getWebContentsId();
         if (!defaultUaRef.current) defaultUaRef.current = wv.getUserAgent();
         const ua = deviceRef.current.ua;
         wv.setUserAgent(ua ?? defaultUaRef.current);
@@ -252,6 +255,19 @@ export function BrowserPane({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, activeId, hasUrl]);
+
+  // Popups (target=_blank / window.open) do webview → nova aba NESTE painel.
+  useEffect(() => {
+    const off = window.api.browser.onPopup(({ url, sourceId }) => {
+      if (sourceId !== wcIdRef.current || !url) return;
+      const id = newId('tab');
+      setTabs((ts) => [...ts, { id, url, title: '', favicon: null }]);
+      setActiveId(id);
+      setAddress(url);
+      setCanBack(false); setCanFwd(false); setCrashed(false); setLoading(false);
+    });
+    return off;
+  }, []);
 
   function navigate(raw: string) {
     const url = normaliseUrl(raw);

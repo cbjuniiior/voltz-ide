@@ -384,6 +384,19 @@ app.whenReady().then(async () => {
     return { ok: true };
   });
 
+  // Popups do navegador interno (<webview>): em vez de abrir uma janela "crua"
+  // do Electron (sem barra de endereço), redireciona o link para uma NOVA ABA
+  // no painel do navegador (o BrowserPane que tiver o webview de origem).
+  app.on('web-contents-created', (_e, contents) => {
+    if (contents.getType() !== 'webview') return;
+    contents.setWindowOpenHandler(({ url }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser:popup', { url, sourceId: contents.id });
+      }
+      return { action: 'deny' };
+    });
+  });
+
   ipcMain.handle('pip:openTasks', () => {
     openTasksPipWindow();
     return { ok: true };

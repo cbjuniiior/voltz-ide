@@ -151,6 +151,11 @@ const api: IpcApi = {
   },
   browser: {
     clearCache: () => ipcRenderer.invoke('browser:clearCache'),
+    onPopup: (cb: (data: { url: string; sourceId: number }) => void) => {
+      const l = (_: unknown, data: { url: string; sourceId: number }) => cb(data);
+      ipcRenderer.on('browser:popup', l);
+      return () => ipcRenderer.removeListener('browser:popup', l);
+    },
   },
   devPorts: {
     scan: () => ipcRenderer.invoke('devPorts:scan'),

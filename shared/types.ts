@@ -411,6 +411,9 @@ export interface IpcApi {
   };
   browser: {
     clearCache: () => Promise<{ ok: true }>;
+    /** Popup de um <webview> do navegador interno → abrir como nova aba.
+     *  `sourceId` é o webContentsId do webview que disparou (p/ rotear ao painel certo). */
+    onPopup: (cb: (data: { url: string; sourceId: number }) => void) => () => void;
   };
   devPorts: {
     /** Lista processos servindo em portas TCP locais (inclui órfãos fora do app). */
