@@ -418,11 +418,21 @@ export function App() {
             )}
             {tabs.map((t) => {
               const isActive = t.id === activeTabId;
+              // Abas inativas COM navegador usam opacity:0 (não visibility:hidden):
+              // assim o <webview> SEGUE RENDERIZANDO em background e o Claude
+              // consegue ver/capturar a página enquanto você trabalha noutra aba.
+              // Abas só de terminal mantêm visibility:hidden (mais leve).
+              const hasBrowser = !isActive && collectLeaves(t.root).some((l) => l.viewMode === 'browser');
               return (
                 <div
                   key={t.id}
                   className="absolute inset-0"
-                  style={{ visibility: isActive ? 'visible' : 'hidden', pointerEvents: isActive ? 'auto' : 'none', zIndex: isActive ? 1 : 0 }}
+                  style={{
+                    visibility: isActive || hasBrowser ? 'visible' : 'hidden',
+                    opacity: isActive ? 1 : 0,
+                    pointerEvents: isActive ? 'auto' : 'none',
+                    zIndex: isActive ? 1 : 0,
+                  }}
                   aria-hidden={!isActive}
                 >
                   <Workspace tab={t} />

@@ -531,7 +531,12 @@ export function BrowserPane({
           )}
           {!hasUrl ? (
             <BrowserEmptyState hasProject={hasProject} devRunning={devRunning} devBusy={devBusy} devPhase={devPhase} devUrl={devUrl} onDev={onDevButton} onOpen={(u) => navigate(u)} />
-          ) : visible ? (
+          ) : (
+            // O webview fica SEMPRE montado quando há URL (não desmontamos ao
+            // ficar invisível). Assim o Claude continua navegando/vendo a página
+            // em background enquanto você trabalha em outro terminal/aba. A aba
+            // inativa já é escondida pelo pai (visibility:hidden), então isto não
+            // aparece pra você — só mantém o webContents vivo para o agente.
             <div
               ref={stageRef}
               className="flex h-full w-full items-center justify-center overflow-auto"
@@ -558,12 +563,6 @@ export function BrowserPane({
                   {device.label} · {frameW}×{frameH} · {device.dpr}x{scale < 0.999 ? ` · ${Math.round(scale * 100)}%` : ''}
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 bg-bg-base p-6 text-center">
-              <Globe size={20} className="text-text-disabled" />
-              <p className="text-[12px] text-text-tertiary">Navegador pausado</p>
-              <p className="max-w-xs text-[11px] text-text-muted">Volte para esta aba para retomar a página.</p>
             </div>
           )}
 

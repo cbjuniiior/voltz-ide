@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { WebContents } from 'electron';
+import type { WebContents, NativeImage } from 'electron';
 
 /**
  * Ponte entre os <webview> do navegador interno (BrowserPane) e o servidor MCP
@@ -165,14 +165,38 @@ export async function opGetState(targetId?: number) {
   return stateOf(requireTarget(targetId));
 }
 
+/**
+ * Captura um frame da página — funciona MESMO com a aba em segundo plano.
+ *
+ * O segredo está no renderer: abas inativas com navegador usam `opacity:0` (não
+ * `visibility:hidden`), então o <webview> segue pintando e o `capturePage`
+ * abaixo retorna o conteúdo real. Uma retentativa curta cobre o caso de a página
+ * ter acabado de montar.
+ */
+async function captureLive(wc: WebContents): Promise<NativeImage | null> {
+  try {
+    const i = await wc.capturePage();
+    if (!i.isEmpty()) return i;
+  } catch { /* tenta de novo abaixo */ }
+  await new Promise((r) => setTimeout(r, 250));
+  try {
+    const i = await wc.capturePage();
+    if (!i.isEmpty()) return i;
+  } catch { /* ignore */ }
+  return null;
+}
+
 export async function opScreenshot(targetId?: number): Promise<{ pngBase64: string; width: number; height: number; url: string }> {
   const wc = requireTarget(targetId);
-  const img = await wc.capturePage();
+  emitActivity('screenshot', wc.id);
+  const img = await captureLive(wc);
+  if (!img || img.isEmpty()) {
+    throw new Error('Não consegui capturar a página. Se o navegador estiver oculto dentro de um painel em modo terminal, deixe-o visível (ex.: um split de navegador ao lado do terminal).');
+  }
   const size = img.getSize();
   // Reduz para no máx. ~1400px de largura — economiza tokens sem perder leitura.
   const scaled = size.width > 1400 ? img.resize({ width: 1400 }) : img;
   const finalSize = scaled.getSize();
-  emitActivity('screenshot', wc.id);
   return {
     pngBase64: scaled.toPNG().toString('base64'),
     width: finalSize.width,
