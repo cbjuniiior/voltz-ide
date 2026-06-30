@@ -8,7 +8,7 @@ import { PROJECT_PALETTE } from '@/lib/projectColors';
  * elemento (o título clicado) e fecha ao clicar fora ou apertar Esc.
  */
 export function TitleColorPopover({
-  anchor, initialTitle, placeholder, initialColor, onClose, onSave,
+  anchor, initialTitle, placeholder, initialColor, onClose, onSave, hint,
 }: {
   anchor: HTMLElement;
   initialTitle: string;
@@ -16,6 +16,8 @@ export function TitleColorPopover({
   initialColor: string;
   onClose: () => void;
   onSave: (title: string, color: string) => void;
+  /** Nota opcional abaixo dos campos (ex.: escopo da personalização). */
+  hint?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,10 @@ export function TitleColorPopover({
           })}
         </div>
       </div>
+
+      {hint && (
+        <p className="-mt-1 text-[10px] leading-snug text-text-muted">{hint}</p>
+      )}
 
       <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-2.5">
         <button

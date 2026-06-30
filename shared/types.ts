@@ -414,6 +414,9 @@ export interface IpcApi {
     /** Popup de um <webview> do navegador interno → abrir como nova aba.
      *  `sourceId` é o webContentsId do webview que disparou (p/ rotear ao painel certo). */
     onPopup: (cb: (data: { url: string; sourceId: number }) => void) => () => void;
+    /** Atividade do agente (MCP) sobre o navegador interno — para o indicador
+     *  de transparência no BrowserPane. `webContentsId` identifica a aba tocada. */
+    onAgentActivity: (cb: (e: { action: string; webContentsId: number; detail: string | null; ts: number }) => void) => () => void;
   };
   devPorts: {
     /** Lista processos servindo em portas TCP locais (inclui órfãos fora do app). */

@@ -113,6 +113,7 @@ export function PaneHeader({
     setSplitOpen(false);
   }
   const toggleFavorite = useProjectCustomStore((s) => s.toggleFavorite);
+  const updateCustom = useProjectCustomStore((s) => s.update);
   const defaultThemeId = useSettingsStore((s) => s.settings.terminalTheme);
   const fontSize = useSettingsStore((s) => s.settings.fontSize);
   const updateSettings = useSettingsStore((s) => s.update);
@@ -199,15 +200,33 @@ export function PaneHeader({
         {editTitleOpen && nameRef.current && (
           <TitleColorPopover
             anchor={nameRef.current}
-            initialTitle={pane.customTitle ?? ''}
+            // Mostra o que está em vigor: override do pane (legado) ou o do projeto.
+            initialTitle={pane.customTitle ?? custom.alias ?? ''}
             placeholder={pane.projectName ?? 'Terminal'}
-            initialColor={pane.customColor ?? ''}
+            initialColor={pane.customColor ?? custom.color ?? ''}
+            hint={pane.projectPath
+              ? 'Aplica ao projeto inteiro — reaparece sempre que você abrir, em qualquer terminal.'
+              : undefined}
             onClose={() => setEditTitleOpen(false)}
             onSave={(title, color) => {
-              updatePane(tabId, pane.id, {
-                customTitle: title.trim() || undefined,
-                customColor: color || undefined,
-              });
+              if (pane.projectPath) {
+                // Personalização do PROJETO (chaveada por caminho): persiste e
+                // acompanha o projeto em qualquer terminal/reabertura.
+                void updateCustom(pane.projectPath, {
+                  alias: title.trim() || undefined,
+                  color: color || undefined,
+                });
+                // Limpa qualquer override local antigo deste pane → fonte única.
+                if (pane.customTitle || pane.customColor) {
+                  updatePane(tabId, pane.id, { customTitle: undefined, customColor: undefined });
+                }
+              } else {
+                // Terminal sem projeto: cai no override por-pane (não há projeto).
+                updatePane(tabId, pane.id, {
+                  customTitle: title.trim() || undefined,
+                  customColor: color || undefined,
+                });
+              }
               setEditTitleOpen(false);
             }}
           />

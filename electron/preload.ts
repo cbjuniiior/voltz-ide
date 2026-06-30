@@ -156,6 +156,11 @@ const api: IpcApi = {
       ipcRenderer.on('browser:popup', l);
       return () => ipcRenderer.removeListener('browser:popup', l);
     },
+    onAgentActivity: (cb: (e: { action: string; webContentsId: number; detail: string | null; ts: number }) => void) => {
+      const l = (_: unknown, e: { action: string; webContentsId: number; detail: string | null; ts: number }) => cb(e);
+      ipcRenderer.on('browser:agentActivity', l);
+      return () => ipcRenderer.removeListener('browser:agentActivity', l);
+    },
   },
   devPorts: {
     scan: () => ipcRenderer.invoke('devPorts:scan'),

@@ -4,7 +4,7 @@ import {
   ExternalLink, Globe, Play, Loader2, Square,
   Zap, Bug, Eraser, Plus, Lock, Search, Smartphone, Monitor,
   ZoomIn, ZoomOut, Camera, SquareTerminal, RotateCcw, ChevronDown,
-  Trash2, AlertTriangle,
+  Trash2, AlertTriangle, Bot,
 } from 'lucide-react';
 import { useDevServersStore, selectDevServer } from '@/stores/devServers';
 import { useSettingsStore } from '@/stores/settings';
@@ -50,6 +50,16 @@ const DEVICES: Device[] = [
 
 interface BrowserTab { id: string; url: string; title: string; favicon: string | null; }
 interface ConsoleMsg { id: number; level: number; text: string; source: string; line: number; }
+
+// Rótulo amigável de cada ação que o agente (Claude via MCP) faz no navegador.
+const AGENT_ACTION_LABEL: Record<string, string> = {
+  screenshot: 'olhou a página',
+  navigate: 'navegou',
+  click: 'clicou',
+  fill: 'preencheu um campo',
+  eval: 'inspecionou a página',
+  scroll: 'rolou até um elemento',
+};
 
 interface Props {
   paneId: string;
@@ -107,6 +117,8 @@ export function BrowserPane({
   const [canBack, setCanBack] = useState(false);
   const [canFwd, setCanFwd] = useState(false);
   const [crashed, setCrashed] = useState(false);
+  // Indicador de transparência: última ação do agente (Claude) NESTA aba.
+  const [agentAct, setAgentAct] = useState<{ label: string; detail: string | null; ts: number } | null>(null);
 
   // Emulador de aparelho.
   const [deviceId, setDeviceId] = useState('responsive');
@@ -268,6 +280,20 @@ export function BrowserPane({
     });
     return off;
   }, []);
+
+  // Atividade do agente (Claude via MCP) sobre ESTA aba — indicador de transparência.
+  useEffect(() => {
+    const off = window.api.browser.onAgentActivity((e) => {
+      if (e.webContentsId !== wcIdRef.current) return;
+      setAgentAct({ label: AGENT_ACTION_LABEL[e.action] ?? 'agiu na página', detail: e.detail, ts: e.ts });
+    });
+    return off;
+  }, []);
+  useEffect(() => {
+    if (!agentAct) return;
+    const t = setTimeout(() => setAgentAct(null), 4500);
+    return () => clearTimeout(t);
+  }, [agentAct]);
 
   function navigate(raw: string) {
     const url = normaliseUrl(raw);
@@ -488,6 +514,21 @@ export function BrowserPane({
       {/* ===== Conteúdo ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+          {agentAct && (
+            <div
+              className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-semibold shadow-lg backdrop-blur"
+              style={{
+                background: 'color-mix(in srgb, var(--accent) 16%, var(--bg-overlay))',
+                borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)',
+                color: 'var(--accent)',
+              }}
+              title={agentAct.detail ?? undefined}
+            >
+              <span className="claude-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--accent)', boxShadow: '0 0 5px var(--accent)' }} />
+              <Bot size={12} />
+              <span>Claude {agentAct.label}</span>
+            </div>
+          )}
           {!hasUrl ? (
             <BrowserEmptyState hasProject={hasProject} devRunning={devRunning} devBusy={devBusy} devPhase={devPhase} devUrl={devUrl} onDev={onDevButton} onOpen={(u) => navigate(u)} />
           ) : visible ? (

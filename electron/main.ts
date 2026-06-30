@@ -31,6 +31,9 @@ import { initAutoUpdate } from './services/autoUpdate';
 import { TelegramBridge } from './services/remote/telegramBridge';
 import { appendRemoteHistory } from './services/remote/history';
 import { registerRemoteIpc } from './ipc/remote';
+import { startBrowserMcpServer } from './services/browserMcpServer';
+import { trackWebview, agentActivity } from './services/browserAgentBridge';
+import { registerVoltzMcpWithClaude } from './services/registerVoltzMcp';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -389,6 +392,8 @@ app.whenReady().then(async () => {
   // no painel do navegador (o BrowserPane que tiver o webview de origem).
   app.on('web-contents-created', (_e, contents) => {
     if (contents.getType() !== 'webview') return;
+    // Disponibiliza este webview para as ferramentas MCP (ver/controlar a página).
+    trackWebview(contents);
     contents.setWindowOpenHandler(({ url }) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('browser:popup', { url, sourceId: contents.id });
@@ -396,6 +401,17 @@ app.whenReady().then(async () => {
       return { action: 'deny' };
     });
   });
+
+  // Encaminha as ações do agente sobre o navegador para a UI (indicador no BrowserPane).
+  agentActivity.on('activity', (e) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:agentActivity', e);
+  });
+
+  // Sobe o servidor MCP do navegador e registra nas contas do Claude (escopo user
+  // = confiado sem prompt). Não bloqueia a abertura da janela.
+  void startBrowserMcpServer()
+    .then((info) => registerVoltzMcpWithClaude(info))
+    .catch(() => { /* logado no diag pelo serviço */ });
 
   ipcMain.handle('pip:openTasks', () => {
     openTasksPipWindow();
