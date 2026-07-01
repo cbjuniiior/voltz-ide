@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { app } from 'electron';
+import { appStore } from './appStore';
 import {
   listTargets, opGetState, opScreenshot, opNavigate,
   opClick, opFill, opEval, opReadConsole, opScrollTo,
@@ -252,10 +253,20 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-/** Sobe o servidor MCP em 127.0.0.1 numa porta efêmera. Idempotente. */
+/**
+ * Sobe o servidor MCP em 127.0.0.1. A porta e o token são PERSISTIDOS
+ * (electron-store) e reusados a cada boot — assim o servidor volta sempre na
+ * MESMA porta, o `~/.claude.json` continua válido e as sessões do Claude
+ * reconectam após um restart/crash do app (não ficam com "Unable to connect"
+ * apontando para uma porta morta). Idempotente.
+ */
 export function startBrowserMcpServer(): Promise<McpServerInfo> {
   if (started) return Promise.resolve(started);
-  const token = crypto.randomBytes(24).toString('hex');
+  const saved = (() => {
+    try { return appStore.get('browserMcp') as { port?: number; token?: string } | undefined; } catch { return undefined; }
+  })();
+  const token = saved?.token || crypto.randomBytes(24).toString('hex');
+  const preferredPort = typeof saved?.port === 'number' && saved.port > 0 ? saved.port : 0;
 
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
@@ -302,12 +313,24 @@ export function startBrowserMcpServer(): Promise<McpServerInfo> {
       }
     });
 
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    const finish = () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       started = { port, token, url: `http://127.0.0.1:${port}/mcp` };
+      try { appStore.set('browserMcp', { port, token }); } catch { /* ignore */ }
       resolve(started);
+    };
+
+    let retried = false;
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      // Porta preferida ocupada (outra instância do Voltz?) → cai para efêmera 1x.
+      if (err.code === 'EADDRINUSE' && preferredPort && !retried) {
+        retried = true;
+        server.listen(0, '127.0.0.1', finish);
+      } else {
+        reject(err);
+      }
     });
+    server.listen(preferredPort, '127.0.0.1', finish);
   });
 }
