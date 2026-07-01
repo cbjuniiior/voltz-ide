@@ -130,7 +130,7 @@ export async function getAccountIdentity(dir: string): Promise<AccountIdentity> 
 // conta principal — `.claude.json` NÃO é copiado de propósito, pra não levar o
 // oauthAccount/userID da conta principal e confundir o login da nova).
 const SEED_FILES = ['settings.json', 'mcp.json', 'CLAUDE.md'];
-const SEED_DIRS = ['commands', 'skills', 'plugins'];
+const SEED_DIRS = ['commands', 'skills', 'plugins', 'agents'];
 
 /** Cria (e popula) o dir de uma conta nova. Não toca em credenciais. */
 export async function createAccountDir(id: string): Promise<string> {

@@ -45,6 +45,7 @@ export interface MenuBarProps {
   onOpenWorktrees: () => void;
   onOpenBroadcast: () => void;
   onOpenServers: () => void;
+  onOpenSquad: () => void;
   sidebarOpen: boolean;
   inspectorOpen: boolean;
 }
@@ -235,6 +236,13 @@ export function MenuBar(props: MenuBarProps) {
           {devRunning > 0 && (
             <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums" style={{ background: 'var(--success)', color: '#fff' }}>{devRunning}</span>
           )}
+        </button>
+        <button
+          onClick={props.onOpenSquad}
+          title="Esquadrão — personas de IA especialistas que trabalham juntas"
+          className="relative flex h-7 items-center gap-1.5 rounded-md px-2 text-[11.5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+        >
+          <Users size={14} /> Esquadrão
         </button>
         <div className="h-5 w-px bg-border-subtle" />
         <SystemGraph />

@@ -151,6 +151,8 @@ export interface PaneLeaf {
   autoStartClaude?: boolean;
   /** Roda um comando de agente (codex/gemini/qwen…) ao subir o terminal (consumido 1x). */
   autoRunCommand?: string;
+  /** Persona do Esquadrão que este terminal roda (ex.: 'voltz-maestro') — para o Canvas. */
+  personaId?: string;
 }
 
 export interface PaneSplit {
@@ -173,6 +175,8 @@ export interface Tab {
   color?: string;
   /** Exibe a aba como um canvas livre (em vez do layout em grade). */
   canvasMode?: boolean;
+  /** Aba é o Canvas de Orquestração do Esquadrão (dashboard das personas). */
+  squad?: boolean;
   /** Estado do canvas (posições, notas, conexões, viewport). */
   canvas?: CanvasState;
   /**
@@ -338,6 +342,23 @@ export interface IpcApi {
       Promise<{ ok: true; installedIds: string[]; accounts: number } | { ok: false; error: string }>;
     /** Remove skills globais (ids) de todos os config dirs informados. */
     uninstallGlobal: (skillIds: string[], dirs: string[]) => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
+  /** Esquadrão: personas (subagentes) instaladas globalmente em <configDir>/agents/voltz/. */
+  agents: {
+    /** Instala/atualiza as personas em todos os config dirs (principal + contas). */
+    install: () => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+    /** Remove as personas de todos os config dirs. */
+    uninstall: () => Promise<{ ok: true }>;
+    /** Ids das personas instaladas num config dir (default = ~/.claude). */
+    listInstalled: (configDir?: string) => Promise<string[]>;
+    /** Lê o .md de uma persona. */
+    read: (id: string, configDir?: string) => Promise<string | null>;
+    /** Grava um .md editado em todos os config dirs. */
+    write: (id: string, body: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /** Versão do conjunto de personas embutido no app. */
+    version: () => Promise<string>;
+    /** Perfil de stack do projeto (linha injetada nas personas via --append-system-prompt). */
+    detectStack: (projectPath: string) => Promise<string>;
   };
   updates: {
     /** Recebe atualizações de estado do auto-update. Retorna unsubscribe. */

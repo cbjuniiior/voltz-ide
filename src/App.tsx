@@ -15,6 +15,8 @@ import { AccountsPane } from './components/AccountsPane';
 import { GitPane } from './components/GitPane';
 import { ServersPane } from './components/ServersPane';
 import { SkillsPane } from './components/SkillsPane';
+import { SquadPane } from './components/SquadPane';
+import { PaneErrorBoundary } from './components/PaneErrorBoundary';
 import { TasksView, TasksPipPlaceholder } from './components/TasksPane';
 import { QuickOpenModal } from './components/QuickOpenModal';
 import { SearchModal } from './components/SearchModal';
@@ -49,7 +51,7 @@ import { applyTheme, watchSystemTheme } from './lib/theme';
 import { collectLeaves, emptyLeaf } from './lib/layoutTree';
 import type { PaneNode, PaneLeaf } from '@shared/types';
 
-type DrawerKind = 'sessions' | 'accounts' | 'git' | 'servers' | 'skills' | 'tasks';
+type DrawerKind = 'sessions' | 'accounts' | 'git' | 'servers' | 'skills' | 'tasks' | 'squad';
 
 /** Dispara o fim de cada fase do Pomodoro (beep + notificação). */
 function usePomodoroDriver() {
@@ -384,6 +386,7 @@ export function App() {
         onOpenWorktrees={() => setWorktreesOpen(true)}
         onOpenBroadcast={() => setBroadcastOpen(true)}
         onOpenServers={() => setDrawer('servers')}
+        onOpenSquad={() => setDrawer('squad')}
         sidebarOpen={sidebarOpen}
         inspectorOpen={drawer !== null}
       />
@@ -504,6 +507,7 @@ const DRAWER_META: Record<DrawerKind, string> = {
   servers: 'Dev servers',
   skills: 'Skills',
   tasks: 'Tarefas',
+  squad: 'Esquadrão',
 };
 
 function RightDrawer({ kind, onClose, tasksPipOpen, onTogglePip, onReturnPip }: {
@@ -530,12 +534,15 @@ function RightDrawer({ kind, onClose, tasksPipOpen, onTogglePip, onReturnPip }: 
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {kind === 'sessions' && <SessionsPane />}
-          {kind === 'accounts' && <AccountsPane />}
-          {kind === 'git' && <GitPane />}
-          {kind === 'servers' && <ServersPane />}
-          {kind === 'skills' && <SkillsPane />}
-          {kind === 'tasks' && (tasksPipOpen ? <TasksPipPlaceholder onReturn={onReturnPip} /> : <TasksView onTogglePip={onTogglePip} />)}
+          <PaneErrorBoundary>
+            {kind === 'sessions' && <SessionsPane />}
+            {kind === 'accounts' && <AccountsPane />}
+            {kind === 'git' && <GitPane />}
+            {kind === 'servers' && <ServersPane />}
+            {kind === 'skills' && <SkillsPane />}
+            {kind === 'squad' && <SquadPane />}
+            {kind === 'tasks' && (tasksPipOpen ? <TasksPipPlaceholder onReturn={onReturnPip} /> : <TasksView onTogglePip={onTogglePip} />)}
+          </PaneErrorBoundary>
         </div>
       </aside>
     </>

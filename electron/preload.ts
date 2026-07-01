@@ -105,6 +105,15 @@ const api: IpcApi = {
     installGlobalFromRepo: (spec, dirs) => ipcRenderer.invoke('skills:installGlobalFromRepo', spec, dirs),
     uninstallGlobal: (skillIds, dirs) => ipcRenderer.invoke('skills:uninstallGlobal', skillIds, dirs),
   },
+  agents: {
+    install: () => ipcRenderer.invoke('agents:install'),
+    uninstall: () => ipcRenderer.invoke('agents:uninstall'),
+    listInstalled: (configDir) => ipcRenderer.invoke('agents:listInstalled', configDir),
+    read: (id, configDir) => ipcRenderer.invoke('agents:read', id, configDir),
+    write: (id, body) => ipcRenderer.invoke('agents:write', id, body),
+    version: () => ipcRenderer.invoke('agents:version'),
+    detectStack: (projectPath) => ipcRenderer.invoke('agents:detectStack', projectPath),
+  },
   updates: {
     onStatus: (cb) => {
       const listener = (_: unknown, status: import('../shared/types').UpdateStatus) => cb(status);

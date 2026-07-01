@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { CanvasEdge, CanvasNote, CanvasRect, CanvasState, CanvasTask, PaneLeaf, PaneNode, PaneSplit, PersistedWorkspace, Tab } from '@shared/types';
 import { addLeaf, closeLeaf, collectLeaves, emptyLeaf, newId, setSplitSizes, splitLeaf, swapLeaves, updateLeaf, type SplitPosition } from '@/lib/layoutTree';
 import type { LayoutId } from '@/components/LayoutPickerModal';
+import { PERSONAS as SQUAD_PERSONAS, personaCommand, MAESTRO_ID } from '@/lib/personaCatalog';
+import { squadSlot } from '@/lib/squadLayout';
 
 /** Clona um nó com ids novos e sem terminalId — para reabrir uma aba fechada
  *  como cópia "fresca" (os PTYs antigos já foram encerrados ao fechar). */
@@ -53,6 +55,16 @@ interface WorkspaceStore {
   /** Abre um terminal já vinculado a uma conta e roda o Claude (fluxo de login). */
   openLoginTerminal: (accountId: string, label: string, cwd: string) => string;
   openProjectInPane: (tabId: string, paneId: string, projectName: string, projectPath: string) => void;
+  /** Esquadrão: abre um terminal rodando um agente (persona) numa nova aba. */
+  openAgent: (command: string, label: string, projectName: string | null, projectPath: string | null, personaId?: string) => string;
+  /** Esquadrão: "explode" uma persona num split ao lado do pane, herdando o projeto. */
+  explodeAgent: (tabId: string, paneId: string, command: string, label: string, personaId?: string) => void;
+  /** Esquadrão: abre (ou foca) a aba do Canvas de Orquestração para um projeto. */
+  openSquadCanvas: (projectName: string | null, projectPath: string | null) => string;
+  /** Esquadrão: ativa uma persona "aguardando" — abre o terminal dela no slot do canvas. */
+  activateSquadPersona: (tabId: string, personaId: string) => string;
+  /** Esquadrão: adiciona uma persona como painel DENTRO da aba do Canvas (dock). */
+  addSquadAgent: (tabId: string, command: string, label: string, personaId: string) => string;
   newTabWithLayout: (layoutId: LayoutId, slots: { name: string; path: string }[]) => string;
   /** Substitui todas as abas (ex.: ao aplicar um perfil de workspace). */
   replaceTabs: (tabs: Tab[], activeTabId: string | null) => void;
@@ -155,6 +167,18 @@ function isValidNode(node: unknown): node is PaneNode {
  * formato de versão antiga) e zera os ids de terminal. Nunca lança — um store
  * corrompido não pode travar o boot na tela de carregamento.
  */
+/**
+ * Ao restaurar a aba do Esquadrão, mantém só o MAESTRO (as demais personas
+ * voltam como "aguardando") — evita subir 9 sessões do Claude no boot.
+ */
+function pruneSquadRoot(root: PaneNode): PaneNode {
+  const leaves = collectLeaves(root);
+  const keep = leaves.find((l) => l.personaId === MAESTRO_ID)
+    ?? leaves.find((l) => l.projectPath)
+    ?? leaves[0];
+  return keep ? { ...keep, terminalId: null } : root;
+}
+
 function sanitizeTabs(raw: unknown): Tab[] {
   if (!Array.isArray(raw)) return [];
   const out: Tab[] = [];
@@ -162,6 +186,18 @@ function sanitizeTabs(raw: unknown): Tab[] {
     if (!item || typeof item !== 'object') continue;
     const tab = item as Partial<Tab>;
     if (typeof tab.id !== 'string' || !isValidNode(tab.root)) continue;
+    if ((tab as Tab).squad) {
+      const pruned = pruneSquadRoot(tab.root as PaneNode);
+      const keepId = collectLeaves(pruned)[0]?.id;
+      out.push({
+        ...(tab as Tab),
+        root: pruned,
+        canvas: keepId
+          ? { positions: { [keepId]: squadSlot(MAESTRO_ID) }, notes: [], edges: [], viewport: (tab as Tab).canvas?.viewport ?? { x: 0, y: 0, zoom: 0.58 } }
+          : (tab as Tab).canvas,
+      });
+      continue;
+    }
     out.push({ ...(tab as Tab), root: clearTerminalIds(tab.root as PaneNode) });
   }
   return out;
@@ -510,6 +546,112 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }),
     }));
     schedulePersist(get);
+  },
+
+  openAgent(command, label, projectName, projectPath, personaId) {
+    const leaf: PaneLeaf = {
+      kind: 'pane',
+      id: newId('pane'),
+      terminalId: null,
+      projectPath,
+      projectName,
+      title: label,
+      viewMode: 'terminal',
+      autoRunCommand: command,
+      personaId,
+    };
+    return get().newTab(label, leaf);
+  },
+  explodeAgent(tabId, paneId, command, label, personaId) {
+    set((s) => ({
+      tabs: updateTab(s.tabs, tabId, (t) => {
+        const src = collectLeaves(t.root).find((l) => l.id === paneId);
+        const seeded: PaneLeaf = {
+          ...emptyLeaf(),
+          projectPath: src?.projectPath ?? null,
+          projectName: src?.projectName ?? null,
+          title: label,
+          viewMode: 'terminal',
+          autoRunCommand: command,
+          personaId,
+        };
+        return { ...t, root: splitLeaf(t.root, paneId, 'vertical', 'after', seeded) };
+      }),
+    }));
+    schedulePersist(get);
+  },
+  openSquadCanvas(projectName, projectPath) {
+    // Se já existe o canvas do Esquadrão montado, só ativa.
+    const existing = get().tabs.find((t) => t.squad);
+    if (existing && existing.canvasMode && collectLeaves(existing.root).some((l) => l.personaId)) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+
+    // Só o MAESTRO sobe como terminal (economia). As outras 8 personas ficam como
+    // "aguardando" (placeholders no overlay) e viram terminal ao serem ativadas.
+    const m = SQUAD_PERSONAS.find((x) => x.id === MAESTRO_ID)!;
+    const maestro: PaneLeaf = {
+      kind: 'pane', id: newId('pane'), terminalId: null,
+      projectPath, projectName,
+      title: `${m.emoji} ${m.name}`,
+      customColor: m.color,
+      viewMode: 'terminal',
+      autoRunCommand: personaCommand(MAESTRO_ID),
+      personaId: MAESTRO_ID,
+    };
+    const canvas: CanvasState = { positions: { [maestro.id]: squadSlot(MAESTRO_ID) }, notes: [], edges: [], viewport: { x: 0, y: 0, zoom: 0.58 } };
+
+    if (existing) {
+      for (const l of collectLeaves(existing.root)) if (l.terminalId) { try { window.api.pty.kill(l.terminalId); } catch { /* ignore */ } }
+      set((s) => ({ tabs: s.tabs.map((t) => (t.id === existing.id ? { id: t.id, title: 'Esquadrão', root: maestro, canvas, canvasMode: true, squad: true } : t)), activeTabId: existing.id }));
+      schedulePersist(get);
+      return existing.id;
+    }
+    const tab: Tab = { id: newId('tab'), title: 'Esquadrão', root: maestro, canvas, canvasMode: true, squad: true };
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    schedulePersist(get);
+    return tab.id;
+  },
+  activateSquadPersona(tabId, personaId) {
+    const t = get().tabs.find((x) => x.id === tabId);
+    if (!t) return '';
+    const existing = collectLeaves(t.root).find((l) => l.personaId === personaId);
+    if (existing) return existing.id;
+    const meta = SQUAD_PERSONAS.find((x) => x.id === personaId);
+    const seed = collectLeaves(t.root).find((l) => l.projectPath);
+    const leaf: PaneLeaf = {
+      ...emptyLeaf(),
+      projectPath: seed?.projectPath ?? null,
+      projectName: seed?.projectName ?? null,
+      title: meta ? `${meta.emoji} ${meta.name}` : personaId,
+      customColor: meta?.color,
+      viewMode: 'terminal',
+      autoRunCommand: personaCommand(personaId),
+      personaId,
+    };
+    const rect = squadSlot(personaId);
+    set((s) => ({ tabs: updateTab(s.tabs, tabId, (tt) => withCanvas({ ...tt, root: addLeaf(tt.root, leaf) }, (c) => ({ ...c, positions: { ...c.positions, [leaf.id]: rect } }))) }));
+    schedulePersist(get);
+    return leaf.id;
+  },
+  addSquadAgent(tabId, command, label, personaId) {
+    const t = get().tabs.find((x) => x.id === tabId);
+    const existing = t ? collectLeaves(t.root).find((l) => l.personaId === personaId) : undefined;
+    if (existing) return existing.id;
+    const seed = t ? collectLeaves(t.root).find((l) => l.projectPath) : undefined;
+    const leaf: PaneLeaf = {
+      ...emptyLeaf(),
+      projectPath: seed?.projectPath ?? null,
+      projectName: seed?.projectName ?? null,
+      title: label,
+      viewMode: 'terminal',
+      autoRunCommand: command,
+      personaId,
+    };
+    set((s) => ({ tabs: updateTab(s.tabs, tabId, (tt) => ({ ...tt, root: addLeaf(tt.root, leaf) })) }));
+    schedulePersist(get);
+    return leaf.id;
   },
 
   setCanvasMode(tabId, on) {

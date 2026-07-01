@@ -21,6 +21,7 @@ import { registerDevServerIpc } from './ipc/devServer';
 import { registerDevPortsIpc } from './ipc/devPorts';
 import { registerProjectMemoryIpc } from './ipc/projectMemory';
 import { registerSkillsIpc } from './ipc/skills';
+import { registerAgentsIpc } from './ipc/agents';
 import { registerFilesIpc } from './ipc/files';
 import { registerGitIpc } from './ipc/git';
 import { registerLiveEditIpc } from './ipc/liveEdit';
@@ -355,6 +356,7 @@ app.whenReady().then(async () => {
   registerDevPortsIpc();
   registerProjectMemoryIpc();
   registerSkillsIpc();
+  registerAgentsIpc();
   registerFilesIpc();
   registerGitIpc();
   registerLiveEditIpc();

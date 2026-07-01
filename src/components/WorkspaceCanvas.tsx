@@ -10,6 +10,8 @@ import { getProjectColor } from '@/lib/projectColors';
 import { toast } from '@/stores/toasts';
 import { TerminalPane } from './TerminalPane';
 import { PaneErrorBoundary } from './PaneErrorBoundary';
+import { SquadOverlay } from './SquadOverlay';
+import { squadBounds } from '@/lib/squadLayout';
 
 const DEFAULT_CANVAS: CanvasState = { positions: {}, notes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
 const MIN_ZOOM = 0.3;
@@ -54,6 +56,25 @@ export function WorkspaceCanvas({ tab }: { tab: Tab }) {
   const connectRef = useRef<string | null>(null);
 
   useEffect(() => { setView(canvas.viewport); /* eslint-disable-next-line */ }, [tab.id]);
+
+  // Esquadrão: enquadra todos os slots (Maestro + 8 personas) automaticamente ao abrir.
+  const fittedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tab.squad || fittedRef.current === tab.id) return;
+    fittedRef.current = tab.id;
+    const t = setTimeout(() => {
+      const el = rootRef.current;
+      if (!el) return;
+      const b = squadBounds();
+      const pad = 70;
+      const bw = Math.max(1, b.maxX - b.minX), bh = Math.max(1, b.maxY - b.minY);
+      const zoom = clamp(Math.min((el.clientWidth - pad * 2) / bw, (el.clientHeight - pad * 2) / bh), MIN_ZOOM, MAX_ZOOM);
+      const next = { x: (el.clientWidth - bw * zoom) / 2 - b.minX * zoom, y: (el.clientHeight - bh * zoom) / 2 - b.minY * zoom, zoom };
+      setView(next); setViewport(tab.id, next);
+    }, 220);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
 
   function noteOf(id: string): CanvasNote | undefined {
     return canvas.notes.find((n) => n.id === id);
@@ -498,6 +519,9 @@ export function WorkspaceCanvas({ tab }: { tab: Tab }) {
           })()}
         </svg>
 
+        {/* Esquadrão: conexões + personas "aguardando" (abrem terminal ao receber ordem) */}
+        {tab.squad && <SquadOverlay tabId={tab.id} leaves={leaves} rectOf={rectOf} />}
+
         {/* Terminais + sua lista de tarefas (browser não executa, então sem lista) */}
         {leaves.map((leaf) => {
           const running = queue?.leafId === leaf.id;
@@ -516,7 +540,7 @@ export function WorkspaceCanvas({ tab }: { tab: Tab }) {
                 onConnectStart={(e) => startConnect(leaf.id, e)}
                 onClose={() => closePane(tab.id, leaf.id)}
               />
-              {!isBrowser && (
+              {!isBrowser && !tab.squad && (
                 <QueuePanel
                   rect={r}
                   notes={connectedNotes(leaf.id)}
